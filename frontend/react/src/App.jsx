@@ -1,4 +1,4 @@
-import CodePulse from './components/acceuil'
+import CodePulse from './pages/acceuil'
 
 function App() {
   return (
