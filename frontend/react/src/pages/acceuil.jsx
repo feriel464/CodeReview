@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Code, CheckCircle, AlertCircle, FileText, Zap, Shield, TrendingUp, ArrowRight, Sparkles, Terminal, FileCode, Bug, BookOpen, Clock, Users, Image as ImageIcon, FileUp, Keyboard, Globe, ChevronDown, X, Menu } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-export default function CodePulse() {
+export default function CodeReview() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState('improvements');
   const [scrollY, setScrollY] = useState(0);
-  const [inputMethod, setInputMethod] = useState('upload');
+  const [inputMethod, setInputMethod] = useState('code'); // Commence par "Coller le code"
   const [language, setLanguage] = useState('fr');
+  const [programmingLanguage, setProgrammingLanguage] = useState('python'); // Langage de programmation
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [showProgrammingLangMenu, setShowProgrammingLangMenu] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [floatingElements, setFloatingElements] = useState([]);
+  const navigate = useNavigate(); 
 
   const translations = {
     fr: {
@@ -24,8 +28,13 @@ export default function CodePulse() {
       heroDesc: 'Optimisé par une IA qui comprend votre code. Détectez les erreurs, améliorez la qualité et générez la documentation automatiquement.',
       tryFree: 'Essayer gratuitement',
       uploadCode: 'Télécharger un fichier',
-      pasteCode: 'Coller du code',
+      pasteCode: 'Coller le code',
       uploadImage: 'Image',
+      pasteCodeHere: 'Collez votre code ici...',
+      selectLanguage: 'Sélectionner le langage',
+      analyze: 'Analyser',
+      clear: 'Effacer',
+      uploadImageHere: 'Télécharger une image ici',
       dropHere: 'Déposez votre fichier ici',
       analyzing: 'Analyse en cours...',
       analysisComplete: 'Analyse terminée',
@@ -46,6 +55,11 @@ export default function CodePulse() {
       uploadCode: 'Upload File',
       pasteCode: 'Paste Code',
       uploadImage: 'Image',
+      pasteCodeHere: 'Paste your code here...',
+      selectLanguage: 'Select Language',
+      analyze: 'Analyze',
+      clear: 'Clear',
+      uploadImageHere: 'Upload image here',
       dropHere: 'Drop your file here',
       analyzing: 'Analyzing...',
       analysisComplete: 'Analysis Complete',
@@ -66,6 +80,11 @@ export default function CodePulse() {
       uploadCode: 'رفع ملف',
       pasteCode: 'لصق الكود',
       uploadImage: 'صورة',
+      pasteCodeHere: 'الصق الكود هنا...',
+      selectLanguage: 'اختر اللغة',
+      analyze: 'تحليل',
+      clear: 'مسح',
+      uploadImageHere: 'تحميل صورة هنا',
       dropHere: 'أسقط ملفك هنا',
       analyzing: 'جاري التحليل...',
       analysisComplete: 'اكتمل التحليل',
@@ -82,6 +101,21 @@ export default function CodePulse() {
     { code: 'fr', name: 'Français', flag: '🇫🇷' },
     { code: 'en', name: 'English', flag: '🇬🇧' },
     { code: 'ar', name: 'العربية', flag: '🇸🇦' },
+  ];
+
+  const programmingLanguages = [
+    { code: 'python', name: 'Python', icon: '🐍' },
+    { code: 'javascript', name: 'JavaScript', icon: '📜' },
+    { code: 'typescript', name: 'TypeScript', icon: '💠' },
+    { code: 'java', name: 'Java', icon: '☕' },
+    { code: 'cpp', name: 'C++', icon: '⚡' },
+    { code: 'csharp', name: 'C#', icon: '#️⃣' },
+    { code: 'go', name: 'Go', icon: '🔷' },
+    { code: 'rust', name: 'Rust', icon: '🦀' },
+    { code: 'php', name: 'PHP', icon: '🐘' },
+    { code: 'ruby', name: 'Ruby', icon: '💎' },
+    { code: 'swift', name: 'Swift', icon: '🕊️' },
+    { code: 'kotlin', name: 'Kotlin', icon: '🟣' },
   ];
 
   useEffect(() => {
@@ -145,7 +179,7 @@ export default function CodePulse() {
               <div className="absolute inset-0 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
             </div>
             <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">
-              CodeSage
+              CodeReview
             </span>
           </div>
           
@@ -155,10 +189,7 @@ export default function CodePulse() {
               {t.features}
               <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
             </a>
-            <a href="#pricing" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
-              {t.pricing}
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
-            </a>
+           
             <a href="#" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
               {t.docs}
               <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
@@ -196,7 +227,7 @@ export default function CodePulse() {
               )}
             </div>
             
-            <button className="px-5 py-2 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all font-medium">
+            <button onClick={() => navigate('/login')} className="px-5 py-2 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all font-medium">
               {t.start}
             </button>
           </nav>
@@ -281,8 +312,8 @@ export default function CodePulse() {
           <div className="max-w-5xl mx-auto mb-6 sm:mb-8">
             <div className="flex flex-wrap justify-center gap-2 sm:gap-4 mb-6 sm:mb-8">
               {[
-                { id: 'upload', icon: FileUp, label: t.uploadCode, color: 'purple' },
                 { id: 'code', icon: Keyboard, label: t.pasteCode, color: 'pink' },
+                { id: 'upload', icon: FileUp, label: t.uploadCode, color: 'purple' },
                 { id: 'image', icon: ImageIcon, label: t.uploadImage, color: 'blue' }
               ].map((method) => (
                 <button
@@ -303,6 +334,76 @@ export default function CodePulse() {
             {/* Upload/Analysis Area */}
             {!showResults && !isAnalyzing && (
               <div className="animate-fade-in">
+                {inputMethod === 'code' && (
+                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-pink-300 p-4 sm:p-8 shadow-xl">
+                    {/* Programming Language Selector */}
+                    <div className="mb-4">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        {t.selectLanguage}
+                      </label>
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowProgrammingLangMenu(!showProgrammingLangMenu)}
+                          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl hover:border-pink-500 transition-all"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">
+                              {programmingLanguages.find(l => l.code === programmingLanguage)?.icon}
+                            </span>
+                            <span className="font-medium text-gray-700">
+                              {programmingLanguages.find(l => l.code === programmingLanguage)?.name}
+                            </span>
+                          </div>
+                          <ChevronDown className={`w-5 h-5 text-gray-600 transition-transform ${showProgrammingLangMenu ? 'rotate-180' : ''}`} />
+                        </button>
+                        
+                        {showProgrammingLangMenu && (
+                          <div className="absolute z-10 w-full mt-2 bg-white rounded-xl shadow-xl border border-gray-200 py-2 max-h-64 overflow-y-auto animate-fade-in">
+                            {programmingLanguages.map((lang) => (
+                              <button
+                                key={lang.code}
+                                onClick={() => {
+                                  setProgrammingLanguage(lang.code);
+                                  setShowProgrammingLangMenu(false);
+                                }}
+                                className={`w-full px-4 py-2.5 text-left hover:bg-pink-50 transition-colors flex items-center gap-3 ${
+                                  programmingLanguage === lang.code ? 'bg-pink-50 text-pink-600' : 'text-gray-700'
+                                }`}
+                              >
+                                <span className="text-xl">{lang.icon}</span>
+                                <span className="font-medium">{lang.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Code Textarea */}
+                    <textarea
+                      value={codeInput}
+                      onChange={(e) => setCodeInput(e.target.value)}
+                      placeholder={t.pasteCodeHere}
+                      className="w-full h-64 sm:h-96 p-4 sm:p-6 bg-gray-50 rounded-xl border border-gray-300 focus:border-pink-500 focus:ring-4 focus:ring-pink-100 outline-none font-mono text-xs sm:text-sm resize-none transition-all"
+                    />
+                    
+                    <div className="flex justify-end mt-4 gap-2 sm:gap-3">
+                      <button 
+                        onClick={() => setCodeInput('')}
+                        className="px-4 sm:px-6 py-2 sm:py-3 text-sm bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all font-medium"
+                      >
+                        {t.clear}
+                      </button>
+                      <button 
+                        onClick={handleAnalyze}
+                        className="px-6 sm:px-8 py-2 sm:py-3 text-sm bg-gradient-to-r from-pink-600 to-purple-600 text-white rounded-xl hover:shadow-xl transition-all font-medium hover:scale-105"
+                      >
+                        {t.analyze}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {inputMethod === 'upload' && (
                   <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-dashed border-purple-300 p-8 sm:p-16 text-center transition-all hover:border-purple-500 hover:bg-white hover:shadow-2xl cursor-pointer group">
                     <div className="mb-4 sm:mb-6 inline-block">
@@ -325,31 +426,6 @@ export default function CodePulse() {
                   </div>
                 )}
 
-                {inputMethod === 'code' && (
-                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-purple-300 p-4 sm:p-8 shadow-xl">
-                    <textarea
-                      value={codeInput}
-                      onChange={(e) => setCodeInput(e.target.value)}
-                      placeholder="Collez votre code ici..."
-                      className="w-full h-64 sm:h-96 p-4 sm:p-6 bg-gray-50 rounded-xl border border-gray-300 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 outline-none font-mono text-xs sm:text-sm resize-none transition-all"
-                    />
-                    <div className="flex justify-end mt-4 gap-2 sm:gap-3">
-                      <button 
-                        onClick={() => setCodeInput('')}
-                        className="px-4 sm:px-6 py-2 sm:py-3 text-sm bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all font-medium"
-                      >
-                        Effacer
-                      </button>
-                      <button 
-                        onClick={handleAnalyze}
-                        className="px-6 sm:px-8 py-2 sm:py-3 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-xl transition-all font-medium hover:scale-105"
-                      >
-                        Analyser
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 {inputMethod === 'image' && (
                   <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-dashed border-blue-300 p-8 sm:p-16 text-center transition-all hover:border-blue-500 hover:bg-white hover:shadow-2xl cursor-pointer group">
                     <div className="mb-4 sm:mb-6 inline-block">
@@ -358,7 +434,7 @@ export default function CodePulse() {
                       </div>
                     </div>
                     <h3 className="text-lg sm:text-2xl font-semibold text-gray-900 mb-2 sm:mb-3">
-                      Téléchargez une image de code
+                      {t.uploadImageHere}
                     </h3>
                     <p className="text-xs sm:text-base text-gray-600 mb-4 sm:mb-6">
                       Screenshots, photos de code, diagrammes...
@@ -458,7 +534,7 @@ export default function CodePulse() {
                   </div>
                 </div>
 
-                {/* Tab Content */}
+                {/* Tab Content - Reste identique */}
                 <div className="p-4 sm:p-8">
                   {activeTab === 'improvements' && (
                     <div className="space-y-4 animate-fade-in">
@@ -480,35 +556,6 @@ export default function CodePulse() {
                               La fonction <code className="px-2 py-1 bg-white rounded text-xs font-mono border border-gray-300">processData()</code> contient 
                               34 lignes. Considérez la diviser en fonctions plus petites.
                             </p>
-                            <div className="bg-white border-2 border-gray-300 rounded-xl p-3 sm:p-4 font-mono text-xs overflow-x-auto">
-                              <div className="text-gray-500 mb-2 font-semibold"># Suggestion ✨</div>
-                              <div className="text-gray-800">def processData():</div>
-                              <div className="text-gray-500 ml-4">    # Diviser en:</div>
-                              <div className="text-purple-600 ml-4 font-semibold">    validateInput()</div>
-                              <div className="text-pink-600 ml-4 font-semibold">    transformData()</div>
-                              <div className="text-blue-600 ml-4 font-semibold">    saveResults()</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-xl transition-all transform hover:scale-[1.02]">
-                        <div className="flex gap-3 sm:gap-4">
-                          <div className="flex-shrink-0">
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-400 to-cyan-500 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg">
-                              <Zap className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
-                            </div>
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                              <h4 className="font-bold text-gray-900 text-sm sm:text-lg">Optimisation possible</h4>
-                              <span className="px-3 py-1 bg-blue-200 text-blue-800 rounded-full text-xs font-bold whitespace-nowrap">
-                                Ligne 92
-                              </span>
-                            </div>
-                            <p className="text-xs sm:text-base text-gray-700">
-                              Utilisez une compréhension de liste pour améliorer les performances de <span className="font-bold text-blue-600">40%</span>
-                            </p>
                           </div>
                         </div>
                       </div>
@@ -527,9 +574,6 @@ export default function CodePulse() {
                             <p className="text-xs sm:text-base text-gray-700 mb-3">
                               La variable <code className="px-2 py-1 bg-white rounded text-xs font-mono border border-gray-300">tempData</code> est déclarée mais jamais utilisée.
                             </p>
-                            <span className="inline-block px-3 py-1 bg-red-200 text-red-800 rounded-full text-xs font-bold">
-                              Ligne 23
-                            </span>
                           </div>
                         </div>
                       </div>
@@ -548,9 +592,6 @@ export default function CodePulse() {
                             <p className="text-xs sm:text-base text-gray-700 mb-4">
                               Commentaires docstring ajoutés pour <span className="font-bold text-green-600">8 fonctions</span>
                             </p>
-                            <button className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:shadow-xl transition-all text-xs sm:text-sm font-semibold hover:scale-105">
-                              Voir la documentation complète →
-                            </button>
                           </div>
                         </div>
                       </div>
@@ -578,7 +619,7 @@ export default function CodePulse() {
         </div>
       </section>
 
-      {/* Features Section */}
+      {/* Features Section - Identique */}
       <section id="features" className="py-12 sm:py-16 md:py-20 bg-white/50 backdrop-blur-sm relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12 sm:mb-16 animate-fade-in">
@@ -586,7 +627,7 @@ export default function CodePulse() {
               Des <span className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">milliers d'outils</span> en un
             </h2>
             <p className="text-sm sm:text-base md:text-lg text-gray-600 max-w-3xl mx-auto px-4">
-              CodePulse analyse automatiquement votre code et fournit des suggestions 
+              CodeReview analyse automatiquement votre code et fournit des suggestions 
               de haute qualité pour tous les langages de programmation.
             </p>
           </div>
@@ -662,7 +703,7 @@ export default function CodePulse() {
         </div>
       </section>
 
-      {/* Stats Section */}
+      {/* Stats Section - Identique */}
       <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           {[...Array(10)].map((_, i) => (
@@ -701,27 +742,23 @@ export default function CodePulse() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* CTA + Footer - Identique */}
       <section className="py-12 sm:py-16 md:py-20 bg-white/50 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-4 sm:mb-6 animate-slide-up px-4">
             Prêt à <span className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">transformer</span> votre code ?
           </h2>
           <p className="text-sm sm:text-base md:text-lg text-gray-600 mb-6 sm:mb-10 animate-fade-in px-4">
-            Rejoignez des milliers de développeurs qui utilisent CodePulse pour écrire un meilleur code.
+            Rejoignez des milliers de développeurs qui utilisent CodeReview pour écrire un meilleur code.
           </p>
           <button className="inline-flex items-center gap-2 sm:gap-3 px-6 sm:px-10 py-3 sm:py-5 text-sm sm:text-base md:text-lg bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl sm:rounded-2xl hover:shadow-2xl transition-all font-bold animate-pulse-button hover:scale-110">
             <Sparkles className="w-5 h-5 sm:w-6 sm:h-6" />
             Commencer gratuitement
             <ArrowRight className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
-          <p className="mt-4 sm:mt-6 text-xs sm:text-sm text-gray-600">
-            ✨ Aucune carte de crédit requise • <span className="font-semibold">Essai gratuit illimité</span>
-          </p>
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="bg-gray-900 text-white py-8 sm:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-6 sm:mb-8">
@@ -730,14 +767,12 @@ export default function CodePulse() {
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
                 <li><a href="#" className="hover:text-white transition-colors">Fonctionnalités</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Tarifs</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Cas d'utilisation</a></li>
               </ul>
             </div>
             <div>
               <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-pink-400">Entreprise</h3>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
                 <li><a href="#" className="hover:text-white transition-colors">À propos</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Blog</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
               </ul>
             </div>
@@ -746,7 +781,6 @@ export default function CodePulse() {
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
                 <li><a href="#" className="hover:text-white transition-colors">Documentation</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">API</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Assistance</a></li>
               </ul>
             </div>
             <div>
@@ -754,7 +788,6 @@ export default function CodePulse() {
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
                 <li><a href="#" className="hover:text-white transition-colors">Confidentialité</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Conditions</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Sécurité</a></li>
               </ul>
             </div>
           </div>
@@ -763,10 +796,10 @@ export default function CodePulse() {
               <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center">
                 <Terminal className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
               </div>
-              <span className="font-bold text-lg sm:text-xl">CodePulse</span>
+              <span className="font-bold text-lg sm:text-xl">CodeReview</span>
             </div>
             <p className="text-gray-400 text-xs sm:text-sm text-center md:text-right">
-              © 2026 CodePulse. Tous droits réservés. Made with ❤️ by developers.
+              © 2026 CodeReview. Tous droits réservés.
             </p>
           </div>
         </div>
