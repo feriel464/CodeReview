@@ -8,6 +8,7 @@ import Sidebar from '../../components/Sidebar';
 import UsersPage from './Users';
 import CodeReviewsPage from './CodeReviews';
 import AnalyticsPage from './Analyticspage ';
+import SettingsPage from './Settings';
 
 export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -187,7 +188,15 @@ export default function AdminDashboard() {
 
                 {showUserMenu && (
                   <div className="absolute right-0 mt-2 w-48 sm:w-56 bg-white rounded-xl shadow-2xl border-2 border-gray-200 py-2 animate-fade-in">
-                    <a href="#" className="flex items-center gap-3 px-4 py-2 sm:py-3 hover:bg-purple-50 transition-colors text-xs sm:text-sm text-gray-700">
+                    <a 
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setActiveSection('settings');
+                        setShowUserMenu(false);
+                      }}
+                      className="flex items-center gap-3 px-4 py-2 sm:py-3 hover:bg-purple-50 transition-colors text-xs sm:text-sm text-gray-700"
+                    >
                       <Settings className="w-4 h-4" />
                       Paramètres
                     </a>
@@ -456,8 +465,11 @@ export default function AdminDashboard() {
           {/* Analytics Section */}
           {activeSection === 'analytics' && <AnalyticsPage />}
 
+          {/* Settings Section */}
+          {activeSection === 'settings' && <SettingsPage />}
+
           {/* Other sections placeholder */}
-          {activeSection !== 'dashboard' && activeSection !== 'users' && activeSection !== 'reviews' && activeSection !== 'analytics' && (
+          {activeSection !== 'dashboard' && activeSection !== 'users' && activeSection !== 'reviews' && activeSection !== 'analytics' && activeSection !== 'settings' && (
             <div className="text-center py-20 animate-fade-in">
               <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-2xl sm:rounded-3xl flex items-center justify-center mx-auto mb-6">
                 <Sparkles className="w-10 h-10 sm:w-12 sm:h-12 text-purple-600 animate-spin-slow" />
