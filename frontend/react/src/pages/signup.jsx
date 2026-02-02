@@ -1,7 +1,9 @@
-// src/pages/SignupPage.jsx
+// src/pages/Signup.jsx
 import React, { useState, useEffect } from 'react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Terminal, Sparkles, Github, Chrome, Globe, ChevronDown, CheckCircle, User } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Terminal, Sparkles, Github, Chrome, Globe, ChevronDown, CheckCircle, User, AlertCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import authService from '../services/authService';
+import './Signup.css'; // Import du fichier CSS
 
 export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
@@ -15,6 +17,8 @@ export default function Signup() {
   const [language, setLanguage] = useState('fr');
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [floatingElements, setFloatingElements] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const translations = {
@@ -29,6 +33,9 @@ export default function Signup() {
       loginLink: 'Se connecter',
       continueWith: 'Ou continuer avec',
       signupButton: 'Créer mon compte',
+      creatingAccount: 'Création en cours...',
+      passwordsDoNotMatch: 'Les mots de passe ne correspondent pas',
+      passwordTooShort: 'Le mot de passe doit contenir au moins 8 caractères',
       features: [
         'Analyse illimitée de code',
         'Support multi-langages',
@@ -47,6 +54,9 @@ export default function Signup() {
       loginLink: 'Sign in',
       continueWith: 'Or continue with',
       signupButton: 'Create account',
+      creatingAccount: 'Creating account...',
+      passwordsDoNotMatch: 'Passwords do not match',
+      passwordTooShort: 'Password must be at least 8 characters',
       features: [
         'Unlimited code analysis',
         'Multi-language support',
@@ -65,6 +75,9 @@ export default function Signup() {
       loginLink: 'تسجيل الدخول',
       continueWith: 'أو تابع مع',
       signupButton: 'إنشاء الحساب',
+      creatingAccount: 'جاري إنشاء الحساب...',
+      passwordsDoNotMatch: 'كلمات المرور غير متطابقة',
+      passwordTooShort: 'يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل',
       features: [
         'تحليل غير محدود للكود',
         'دعم لغات متعددة',
@@ -83,6 +96,11 @@ export default function Signup() {
   ];
 
   useEffect(() => {
+    // Rediriger si déjà connecté
+    if (authService.isAuthenticated()) {
+      navigate('/dashboard');
+    }
+
     const elements = Array.from({ length: 15 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
@@ -92,27 +110,62 @@ export default function Signup() {
       duration: Math.random() * 20 + 15
     }));
     setFloatingElements(elements);
-  }, []);
+  }, [navigate]);
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
     });
+    // Clear error when user types
+    if (error) setError('');
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Validation
-    if (formData.password !== formData.confirmPassword) {
-      alert('Les mots de passe ne correspondent pas');
-      return;
+// src/pages/Signup.jsx - VERSION MISE À JOUR
+// Remplacez seulement la fonction handleSubmit dans votre fichier Signup.jsx existant
+
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setError('');
+
+  // Validation côté client
+  if (formData.password.length < 8) {
+    setError(t.passwordTooShort);
+    return;
+  }
+
+  if (formData.password !== formData.confirmPassword) {
+    setError(t.passwordsDoNotMatch);
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const response = await authService.signup(
+      formData.name,
+      formData.email,
+      formData.password
+    );
+    
+    if (response.success) {
+      // Récupérer les données utilisateur
+      const user = response.data.user;
+      
+      // Rediriger selon le rôle (normalement 'user' pour une inscription)
+      if (user.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else {
+        navigate('/dashboard');
+      }
     }
-    // Logique d'inscription ici
-    console.log('Signup:', formData);
-    // Redirection après inscription
-    // navigate('/dashboard');
-  };
+  } catch (err) {
+    console.error('Signup error:', err);
+    setError(err.message || 'Erreur lors de l\'inscription');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 relative overflow-hidden flex items-center justify-center p-4">
@@ -186,16 +239,16 @@ export default function Signup() {
         <div className="hidden md:block space-y-8 animate-slide-in-left">
           {/* Logo */}
           <div className="flex items-center gap-3">
-                     <div className="relative group">
-                                   <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                                     <Terminal className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                                   </div>
-                                   <div className="absolute inset-0 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
-                      </div>
-                      <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">
-                        CodeReview
-                      </span>
-                    </div>
+            <div className="relative group">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+                <Terminal className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
+            </div>
+            <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">
+              CodeReview
+            </span>
+          </div>
 
           {/* Welcome Text */}
           <div>
@@ -266,6 +319,14 @@ export default function Signup() {
               </p>
             </div>
 
+            {/* Error Message */}
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 animate-fade-in">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
+
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Name Input */}
@@ -283,6 +344,7 @@ export default function Signup() {
                     className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:ring-4 focus:ring-purple-100 outline-none transition-all text-gray-900 placeholder-gray-400"
                     placeholder="Jean Dupont"
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -302,6 +364,7 @@ export default function Signup() {
                     className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:ring-4 focus:ring-purple-100 outline-none transition-all text-gray-900 placeholder-gray-400"
                     placeholder="exemple@email.com"
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -321,11 +384,14 @@ export default function Signup() {
                     className="w-full pl-12 pr-12 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:ring-4 focus:ring-purple-100 outline-none transition-all text-gray-900 placeholder-gray-400"
                     placeholder="••••••••"
                     required
+                    disabled={loading}
+                    minLength={8}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={loading}
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
@@ -347,11 +413,13 @@ export default function Signup() {
                     className="w-full pl-12 pr-12 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:ring-4 focus:ring-purple-100 outline-none transition-all text-gray-900 placeholder-gray-400"
                     placeholder="••••••••"
                     required
+                    disabled={loading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={loading}
                   >
                     {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
@@ -361,10 +429,11 @@ export default function Signup() {
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl font-semibold text-lg hover:shadow-2xl transition-all transform hover:scale-105 flex items-center justify-center gap-2 group"
+                disabled={loading}
+                className="w-full py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl font-semibold text-lg hover:shadow-2xl transition-all transform hover:scale-105 flex items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
-                {t.signupButton}
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                {loading ? t.creatingAccount : t.signupButton}
+                {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
               </button>
             </form>
 
@@ -382,11 +451,11 @@ export default function Signup() {
 
             {/* Social Login Buttons */}
             <div className="grid grid-cols-2 gap-4">
-              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group">
+              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group" disabled={loading}>
                 <Github className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 <span className="hidden sm:inline">GitHub</span>
               </button>
-              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group">
+              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group" disabled={loading}>
                 <Chrome className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 <span className="hidden sm:inline">Google</span>
               </button>
@@ -406,83 +475,6 @@ export default function Signup() {
           </div>
         </div>
       </div>
-
-      <style jsx>{`
-        @keyframes float-slow {
-          0%, 100% {
-            transform: translateY(0px) translateX(0px) rotate(0deg);
-          }
-          33% {
-            transform: translateY(-30px) translateX(20px) rotate(120deg);
-          }
-          66% {
-            transform: translateY(20px) translateX(-20px) rotate(240deg);
-          }
-        }
-        
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        @keyframes fade-in-up {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        @keyframes slide-in-left {
-          from {
-            opacity: 0;
-            transform: translateX(-50px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        
-        @keyframes spin-slow {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-        
-        .animate-float-slow {
-          animation: float-slow 20s ease-in-out infinite;
-        }
-        
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out;
-        }
-        
-        .animate-fade-in-up {
-          animation: fade-in-up 0.8s ease-out;
-          animation-fill-mode: both;
-        }
-        
-        .animate-slide-in-left {
-          animation: slide-in-left 0.8s ease-out;
-        }
-        
-        .animate-spin-slow {
-          animation: spin-slow 3s linear infinite;
-        }
-      `}</style>
     </div>
   );
 }

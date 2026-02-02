@@ -51,6 +51,41 @@ export default function AdminDashboard() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Fonction de déconnexion
+  const handleLogout = async () => {
+    try {
+      // Récupérer le token depuis le localStorage
+      const token = localStorage.getItem('token');
+      
+      if (token) {
+        // Appeler l'API de déconnexion
+        const response = await fetch('http://localhost:5000/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+          console.log('Déconnexion réussie côté serveur');
+        }
+      }
+    } catch (error) {
+      console.error('Erreur lors de la déconnexion:', error);
+      // On continue quand même avec la déconnexion côté client
+    } finally {
+      // Supprimer le token et les données utilisateur du localStorage
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      
+      // Rediriger vers la page de connexion
+      window.location.href = '/login';
+    }
+  };
+
   const recentAnalyses = [
     { id: 1, user: 'Marie Dubois', file: 'app.py', language: 'Python', score: 92, status: 'completed', time: '5 min' },
     { id: 2, user: 'Jean Martin', file: 'index.js', language: 'JavaScript', score: 88, status: 'completed', time: '12 min' },
@@ -200,10 +235,13 @@ export default function AdminDashboard() {
                       <Settings className="w-4 h-4" />
                       Paramètres
                     </a>
-                    <a href="#" className="flex items-center gap-3 px-4 py-2 sm:py-3 hover:bg-purple-50 transition-colors text-xs sm:text-sm text-gray-700 border-t border-gray-200">
+                    <button 
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-3 px-4 py-2 sm:py-3 hover:bg-red-50 transition-colors text-xs sm:text-sm text-red-600 border-t border-gray-200"
+                    >
                       <LogOut className="w-4 h-4" />
                       Déconnexion
-                    </a>
+                    </button>
                   </div>
                 )}
               </div>
@@ -485,7 +523,8 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      <style jsx>{`
+      {/* Style CSS directement dans le composant */}
+      <style dangerouslySetInnerHTML={{__html: `
         @keyframes float-slow {
           0%, 100% {
             transform: translateY(0px) translateX(0px) rotate(0deg);
@@ -573,7 +612,7 @@ export default function AdminDashboard() {
         .animate-spin-slow {
           animation: spin-slow 3s linear infinite;
         }
-      `}</style>
+      `}} />
     </div>
   );
 }

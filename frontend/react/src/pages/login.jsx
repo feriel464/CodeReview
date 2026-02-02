@@ -1,7 +1,8 @@
 // src/pages/Login.jsx
 import React, { useState, useEffect } from 'react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Terminal, Sparkles, Github, Chrome, Globe, ChevronDown, CheckCircle } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Terminal, Sparkles, Github, Chrome, Globe, ChevronDown, CheckCircle, AlertCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import authService from '../services/authService';
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
@@ -10,6 +11,8 @@ export default function Login() {
   const [language, setLanguage] = useState('fr');
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [floatingElements, setFloatingElements] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const translations = {
@@ -23,6 +26,7 @@ export default function Login() {
       signupLink: 'Créer un compte',
       continueWith: 'Ou continuer avec',
       loginButton: 'Se connecter',
+      loggingIn: 'Connexion en cours...',
       features: [
         'Analyse illimitée de code',
         'Support multi-langages',
@@ -40,6 +44,7 @@ export default function Login() {
       signupLink: 'Create account',
       continueWith: 'Or continue with',
       loginButton: 'Sign in',
+      loggingIn: 'Signing in...',
       features: [
         'Unlimited code analysis',
         'Multi-language support',
@@ -57,6 +62,7 @@ export default function Login() {
       signupLink: 'إنشاء حساب',
       continueWith: 'أو تابع مع',
       loginButton: 'تسجيل الدخول',
+      loggingIn: 'جاري تسجيل الدخول...',
       features: [
         'تحليل غير محدود للكود',
         'دعم لغات متعددة',
@@ -75,6 +81,11 @@ export default function Login() {
   ];
 
   useEffect(() => {
+    // Rediriger si déjà connecté
+    if (authService.isAuthenticated()) {
+      navigate('/dashboard');
+    }
+
     const elements = Array.from({ length: 15 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
@@ -84,15 +95,36 @@ export default function Login() {
       duration: Math.random() * 20 + 15
     }));
     setFloatingElements(elements);
-  }, []);
+  }, [navigate]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Logique de connexion ici
-    console.log('Login:', { email, password });
-    // Redirection après connexion
-    // navigate('/dashboard');
-  };
+// src/pages/Login.jsx - VERSION MISE À JOUR
+// Remplacez seulement la fonction handleSubmit dans votre fichier Login.jsx existant
+
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setError('');
+  setLoading(true);
+
+  try {
+    const response = await authService.login(email, password);
+    
+    if (response.success) {
+      // Récupérer les données utilisateur
+      const user = response.data.user;
+      
+      // Rediriger selon le rôle
+      if (user.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else {
+        navigate('/dashboard');
+      }
+    }
+  } catch (err) {
+    setError(err.message || 'Erreur lors de la connexion');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 relative overflow-hidden flex items-center justify-center p-4">
@@ -167,10 +199,10 @@ export default function Login() {
           {/* Logo */}
           <div className="flex items-center gap-3">
            <div className="relative group">
-                         <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                           <Terminal className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                         </div>
-                         <div className="absolute inset-0 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
+             <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+               <Terminal className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+             </div>
+             <div className="absolute inset-0 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
             </div>
             <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">
               CodeReview
@@ -246,6 +278,14 @@ export default function Login() {
               </p>
             </div>
 
+            {/* Error Message */}
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 animate-fade-in">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
+
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Email Input */}
@@ -262,6 +302,7 @@ export default function Login() {
                     className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:ring-4 focus:ring-purple-100 outline-none transition-all text-gray-900 placeholder-gray-400"
                     placeholder="exemple@email.com"
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -280,11 +321,13 @@ export default function Login() {
                     className="w-full pl-12 pr-12 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:ring-4 focus:ring-purple-100 outline-none transition-all text-gray-900 placeholder-gray-400"
                     placeholder="••••••••"
                     required
+                    disabled={loading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={loading}
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
@@ -296,6 +339,7 @@ export default function Login() {
                 <button
                   type="button"
                   className="text-sm text-purple-600 hover:text-purple-700 font-semibold transition-colors"
+                  disabled={loading}
                 >
                   {t.forgotPassword}
                 </button>
@@ -304,10 +348,11 @@ export default function Login() {
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl font-semibold text-lg hover:shadow-2xl transition-all transform hover:scale-105 flex items-center justify-center gap-2 group"
+                disabled={loading}
+                className="w-full py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl font-semibold text-lg hover:shadow-2xl transition-all transform hover:scale-105 flex items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
-                {t.loginButton}
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                {loading ? t.loggingIn : t.loginButton}
+                {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
               </button>
             </form>
 
@@ -325,11 +370,11 @@ export default function Login() {
 
             {/* Social Login Buttons */}
             <div className="grid grid-cols-2 gap-4">
-              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group">
+              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group" disabled={loading}>
                 <Github className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 <span className="hidden sm:inline">GitHub</span>
               </button>
-              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group">
+              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group" disabled={loading}>
                 <Chrome className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 <span className="hidden sm:inline">Google</span>
               </button>
