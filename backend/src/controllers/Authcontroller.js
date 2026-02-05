@@ -163,24 +163,19 @@ const login = async (req, res) => {
   }
 };
 
-// Déconnexion (Logout) - Version simplifiée sans blacklist
+// Déconnexion (Logout) 
 const logout = async (req, res) => {
   try {
     // La déconnexion avec JWT est principalement gérée côté client
     // Le serveur confirme simplement la demande de déconnexion
-    
-    // Optionnel : Enregistrer la déconnexion dans les logs
+
     if (req.userId) {
       console.log(`Utilisateur ${req.userId} s'est déconnecté à ${new Date().toISOString()}`);
       
-      // Optionnel : Mettre à jour un champ last_logout dans la table users
-      // await pool.query(
-      //   'UPDATE users SET last_logout = NOW() WHERE id = $1',
-      //   [req.userId]
-      // );
+
     }
 
-    // Retourner une réponse de succès
+    // réponse de succès
     res.status(200).json({
       success: true,
       message: 'Déconnexion réussie'

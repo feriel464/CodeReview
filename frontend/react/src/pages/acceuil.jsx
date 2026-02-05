@@ -1,23 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Code, CheckCircle, AlertCircle, FileText, Zap, Shield, TrendingUp, ArrowRight, Sparkles, Terminal, FileCode, Bug, BookOpen, Clock, Users, Image as ImageIcon, FileUp, Keyboard, Globe, ChevronDown, X, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+// Configuration de l'API
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export default function CodeReview() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState('improvements');
   const [scrollY, setScrollY] = useState(0);
-  const [inputMethod, setInputMethod] = useState('code'); // Commence par "Coller le code"
+  const [inputMethod, setInputMethod] = useState('code');
   const [language, setLanguage] = useState('fr');
-  const [programmingLanguage, setProgrammingLanguage] = useState('python'); // Langage de programmation
+  const [programmingLanguage, setProgrammingLanguage] = useState('python');
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [showProgrammingLangMenu, setShowProgrammingLangMenu] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [floatingElements, setFloatingElements] = useState([]);
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
 
-  const translations = {
+  // ========== NOUVEAUX ÉTATS POUR LES TRADUCTIONS ==========
+  const [translations, setTranslations] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [languages, setLanguages] = useState([]);
+
+  // Traductions par défaut (fallback si le backend ne répond pas)
+  const defaultTranslations = {
     fr: {
       features: 'Fonctionnalités',
       pricing: 'Tarifs',
@@ -42,6 +52,48 @@ export default function CodeReview() {
       improvements: 'Améliorations',
       smells: 'Code Smells',
       documentation: 'Documentation',
+      featuresTitle: 'Des milliers d\'outils en un',
+      featuresDesc: 'CodeReview analyse automatiquement votre code et fournit des suggestions de haute qualité pour tous les langages de programmation.',
+      featureMultiLang: 'Multi-langages',
+      featureMultiLangDesc: '20+ langages supportés',
+      featureBugDetection: 'Détection bugs',
+      featureBugDetectionDesc: 'Trouvez les erreurs cachées',
+      featureAutoDocs: 'Auto-docs',
+      featureAutoDocsDesc: 'Documentation automatique',
+      featureSecurity: 'Sécurité',
+      featureSecurityDesc: 'Analyse des vulnérabilités',
+      featureOptimization: 'Optimisation',
+      featureOptimizationDesc: 'Performances améliorées',
+      featureMetrics: 'Métriques',
+      featureMetricsDesc: 'Suivi de la qualité',
+      featureSpeed: 'Ultra-rapide',
+      featureSpeedDesc: 'Résultats en < 5s',
+      featureCollaboration: 'Collaboration',
+      featureCollaborationDesc: 'Travail d\'équipe facilité',
+      stat1Number: '2000+',
+      stat1Label: 'Outils IA',
+      stat2Number: '10M+',
+      stat2Label: 'Analyses',
+      stat3Number: '100+',
+      stat3Label: 'Langues',
+      stat4Number: '24/7',
+      stat4Label: 'Disponible',
+      ctaTitle: 'Prêt à transformer votre code ?',
+      ctaDesc: 'Rejoignez des milliers de développeurs qui utilisent CodeReview pour écrire un meilleur code.',
+      ctaButton: 'Commencer gratuitement',
+      footerProduct: 'Produit',
+      footerProductFeatures: 'Fonctionnalités',
+      footerProductPricing: 'Tarifs',
+      footerCompany: 'Entreprise',
+      footerCompanyAbout: 'À propos',
+      footerCompanyContact: 'Contact',
+      footerResources: 'Ressources',
+      footerResourcesDocs: 'Documentation',
+      footerResourcesAPI: 'API',
+      footerLegal: 'Légal',
+      footerLegalPrivacy: 'Confidentialité',
+      footerLegalTerms: 'Conditions',
+      footerCopyright: '© 2026 CodeReview. Tous droits réservés.'
     },
     en: {
       features: 'Features',
@@ -95,13 +147,63 @@ export default function CodeReview() {
     }
   };
 
-  const t = translations[language];
+  // ========== CHARGEMENT DES TRADUCTIONS DEPUIS LE BACKEND ==========
+  useEffect(() => {
+    loadTranslations();
+    loadLanguages();
+  }, []);
 
-  const languages = [
-    { code: 'fr', name: 'Français', flag: '🇫🇷' },
-    { code: 'en', name: 'English', flag: '🇬🇧' },
-    { code: 'ar', name: 'العربية', flag: '🇸🇦' },
-  ];
+  /**
+   * Charger toutes les traductions depuis le backend
+   */
+  const loadTranslations = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API_URL}/translations`);
+      
+      if (response.data.success) {
+        setTranslations(response.data.data);
+        console.log('✅ Traductions chargées depuis le backend:', response.data.data);
+      }
+    } catch (err) {
+      console.error('❌ Erreur chargement traductions:', err);
+      console.log('⚠️ Utilisation des traductions par défaut');
+      setTranslations(defaultTranslations);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Charger la liste des langues disponibles
+   */
+  const loadLanguages = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/translations/languages`);
+      
+      if (response.data.success) {
+        const activeLanguages = response.data.languages
+          .filter(lang => lang.is_active)
+          .map(lang => ({
+            code: lang.code,
+            name: lang.name,
+            flag: lang.flag
+          }));
+        setLanguages(activeLanguages);
+      }
+    } catch (err) {
+      console.error('❌ Erreur chargement langues:', err);
+      // Fallback sur les langues par défaut
+      setLanguages([
+        { code: 'fr', name: 'Français', flag: '🇫🇷' },
+        { code: 'en', name: 'English', flag: '🇬🇧' },
+        { code: 'ar', name: 'العربية', flag: '🇸🇦' }
+      ]);
+    }
+  };
+
+  // Obtenir les traductions pour la langue active
+  const t = translations[language] || defaultTranslations[language] || defaultTranslations.fr;
 
   const programmingLanguages = [
     { code: 'python', name: 'Python', icon: '🐍' },
@@ -142,6 +244,18 @@ export default function CodeReview() {
       setShowResults(true);
     }, 2500);
   };
+
+  // ========== AFFICHAGE DU CHARGEMENT ==========
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 text-lg font-semibold">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 relative overflow-hidden">
@@ -331,6 +445,7 @@ export default function CodeReview() {
               ))}
             </div>
 
+            {/* Le reste du code continue... */}
             {/* Upload/Analysis Area */}
             {!showResults && !isAnalyzing && (
               <div className="animate-fade-in">
@@ -534,7 +649,7 @@ export default function CodeReview() {
                   </div>
                 </div>
 
-                {/* Tab Content - Reste identique */}
+                {/* Tab Content */}
                 <div className="p-4 sm:p-8">
                   {activeTab === 'improvements' && (
                     <div className="space-y-4 animate-fade-in">
@@ -619,16 +734,15 @@ export default function CodeReview() {
         </div>
       </section>
 
-      {/* Features Section - Identique */}
+      {/* Features Section */}
       <section id="features" className="py-12 sm:py-16 md:py-20 bg-white/50 backdrop-blur-sm relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12 sm:mb-16 animate-fade-in">
             <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-4 sm:mb-6">
-              Des <span className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">milliers d'outils</span> en un
+              {t.featuresTitle?.split(' ').slice(0, -2).join(' ')} <span className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">{t.featuresTitle?.split(' ').slice(-2).join(' ')}</span>
             </h2>
             <p className="text-sm sm:text-base md:text-lg text-gray-600 max-w-3xl mx-auto px-4">
-              CodeReview analyse automatiquement votre code et fournit des suggestions 
-              de haute qualité pour tous les langages de programmation.
+              {t.featuresDesc}
             </p>
           </div>
 
@@ -636,50 +750,50 @@ export default function CodeReview() {
             {[
               {
                 icon: <Terminal className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Multi-langages',
-                description: '20+ langages supportés',
+                title: t.featureMultiLang,
+                description: t.featureMultiLangDesc,
                 gradient: 'from-purple-500 to-purple-600'
               },
               {
                 icon: <Bug className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Détection bugs',
-                description: 'Trouvez les erreurs cachées',
+                title: t.featureBugDetection,
+                description: t.featureBugDetectionDesc,
                 gradient: 'from-pink-500 to-pink-600'
               },
               {
                 icon: <FileText className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Auto-docs',
-                description: 'Documentation automatique',
+                title: t.featureAutoDocs,
+                description: t.featureAutoDocsDesc,
                 gradient: 'from-blue-500 to-blue-600'
               },
               {
                 icon: <Shield className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Sécurité',
-                description: 'Analyse des vulnérabilités',
+                title: t.featureSecurity,
+                description: t.featureSecurityDesc,
                 gradient: 'from-green-500 to-green-600'
               },
               {
                 icon: <Zap className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Optimisation',
-                description: 'Performances améliorées',
+                title: t.featureOptimization,
+                description: t.featureOptimizationDesc,
                 gradient: 'from-yellow-500 to-orange-600'
               },
               {
                 icon: <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Métriques',
-                description: 'Suivi de la qualité',
+                title: t.featureMetrics,
+                description: t.featureMetricsDesc,
                 gradient: 'from-indigo-500 to-indigo-600'
               },
               {
                 icon: <Clock className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Ultra-rapide',
-                description: 'Résultats en < 5s',
+                title: t.featureSpeed,
+                description: t.featureSpeedDesc,
                 gradient: 'from-cyan-500 to-cyan-600'
               },
               {
                 icon: <Users className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10" />,
-                title: 'Collaboration',
-                description: 'Travail d\'équipe facilité',
+                title: t.featureCollaboration,
+                description: t.featureCollaborationDesc,
                 gradient: 'from-rose-500 to-rose-600'
               }
             ].map((feature, index) => (
@@ -703,7 +817,7 @@ export default function CodeReview() {
         </div>
       </section>
 
-      {/* Stats Section - Identique */}
+      {/* Stats Section */}
       <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           {[...Array(10)].map((_, i) => (
@@ -724,10 +838,10 @@ export default function CodeReview() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 text-center">
             {[
-              { number: '2000+', label: 'Outils IA' },
-              { number: '10M+', label: 'Analyses' },
-              { number: '100+', label: 'Langues' },
-              { number: '24/7', label: 'Disponible' }
+              { number: t.stat1Number, label: t.stat1Label },
+              { number: t.stat2Number, label: t.stat2Label },
+              { number: t.stat3Number, label: t.stat3Label },
+              { number: t.stat4Number, label: t.stat4Label }
             ].map((stat, index) => (
               <div key={index} className="group cursor-pointer animate-fade-in" style={{ animationDelay: `${index * 0.1}s` }}>
                 <div className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold mb-2 group-hover:scale-110 transition-transform">
@@ -742,52 +856,53 @@ export default function CodeReview() {
         </div>
       </section>
 
-      {/* CTA + Footer - Identique */}
+      {/* CTA Section */}
       <section className="py-12 sm:py-16 md:py-20 bg-white/50 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-4 sm:mb-6 animate-slide-up px-4">
-            Prêt à <span className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">transformer</span> votre code ?
+            {t.ctaTitle?.split(' ').slice(0, -3).join(' ')} <span className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">{t.ctaTitle?.split(' ').slice(-3).join(' ')}</span>
           </h2>
           <p className="text-sm sm:text-base md:text-lg text-gray-600 mb-6 sm:mb-10 animate-fade-in px-4">
-            Rejoignez des milliers de développeurs qui utilisent CodeReview pour écrire un meilleur code.
+            {t.ctaDesc}
           </p>
           <button className="inline-flex items-center gap-2 sm:gap-3 px-6 sm:px-10 py-3 sm:py-5 text-sm sm:text-base md:text-lg bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl sm:rounded-2xl hover:shadow-2xl transition-all font-bold animate-pulse-button hover:scale-110">
             <Sparkles className="w-5 h-5 sm:w-6 sm:h-6" />
-            Commencer gratuitement
+            {t.ctaButton}
             <ArrowRight className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
       </section>
 
+      {/* Footer */}
       <footer className="bg-gray-900 text-white py-8 sm:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-6 sm:mb-8">
             <div>
-              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-purple-400">Produit</h3>
+              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-purple-400">{t.footerProduct}</h3>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">Fonctionnalités</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Tarifs</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerProductFeatures}</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerProductPricing}</a></li>
               </ul>
             </div>
             <div>
-              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-pink-400">Entreprise</h3>
+              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-pink-400">{t.footerCompany}</h3>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">À propos</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerCompanyAbout}</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerCompanyContact}</a></li>
               </ul>
             </div>
             <div>
-              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-blue-400">Ressources</h3>
+              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-blue-400">{t.footerResources}</h3>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">Documentation</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">API</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerResourcesDocs}</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerResourcesAPI}</a></li>
               </ul>
             </div>
             <div>
-              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-green-400">Légal</h3>
+              <h3 className="font-bold text-sm sm:text-base mb-3 sm:mb-4 text-green-400">{t.footerLegal}</h3>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">Confidentialité</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Conditions</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerLegalPrivacy}</a></li>
+                <li><a href="#" className="hover:text-white transition-colors">{t.footerLegalTerms}</a></li>
               </ul>
             </div>
           </div>
@@ -799,7 +914,7 @@ export default function CodeReview() {
               <span className="font-bold text-lg sm:text-xl">CodeReview</span>
             </div>
             <p className="text-gray-400 text-xs sm:text-sm text-center md:text-right">
-              © 2026 CodeReview. Tous droits réservés.
+              {t.footerCopyright}
             </p>
           </div>
         </div>

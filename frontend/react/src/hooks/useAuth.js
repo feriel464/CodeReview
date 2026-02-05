@@ -1,7 +1,7 @@
 // src/hooks/useAuth.js
 import { useState, useEffect } from 'react';
 import authService from '../services/authService';
-
+//sert a gerer l'état d'ath coté client
 export const useAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -37,3 +37,10 @@ export const useAuth = () => {
     loading
   };
 };
+//user → pour afficher nom, email et initiales
+
+//isAdmin → pour afficher le menu admin ou utilisateur normal
+
+//isAuthenticated → pour éventuellement afficher ou cacher le menu
+
+//loading → pour gérer le rendu conditionnel si nécessaire

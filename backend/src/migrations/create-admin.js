@@ -102,7 +102,7 @@ async function insertAdmin(adminData) {
     console.log('\n🔑 Identifiants de connexion:');
     console.log('   ' + '='.repeat(60));
     console.log('   Email:     admin@codereview.com');
-    console.log('   Password:  Admin@123456');
+    console.log('   Password:  Admin123');
     console.log('   ' + '='.repeat(60));
     
     console.log('\n⚠️  SÉCURITÉ:');
