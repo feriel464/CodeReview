@@ -19,9 +19,10 @@ const authMiddleware = (req, res, next) => {
     // Vérifier le token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Ajouter l'ID utilisateur et le rôle à la requête
+    // Ajouter les infos utilisateur à la requête
     req.userId = decoded.userId;
     req.userRole = decoded.role;
+    req.user = decoded; // ✅ Ajouté pour cohérence avec optionalAuth
 
     // Passer au middleware suivant
     next();
@@ -74,8 +75,41 @@ const isAdminOrOwner = (req, res, next) => {
   }
 };
 
+/**
+ * Middleware d'authentification optionnelle
+ * Permet l'accès aux utilisateurs connectés ET non connectés
+ */
+const optionalAuth = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      // Pas de token = invité
+      req.user = null;
+      req.userId = null;
+      req.userRole = null;
+      return next();
+    }
+
+    // Token présent = vérifier
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    req.userId = decoded.userId;
+    req.userRole = decoded.role;
+    next();
+  } catch (error) {
+    // Token invalide = traiter comme invité
+    req.user = null;
+    req.userId = null;
+    req.userRole = null;
+    next();
+  }
+};
+
+// ✅ EXPORT CORRIGÉ
 module.exports = {
   authMiddleware,
   isAdmin,
-  isAdminOrOwner
+  isAdminOrOwner,
+  optionalAuth  // ✅ Ajouté ici
 };

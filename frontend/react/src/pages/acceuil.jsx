@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Code, CheckCircle, AlertCircle, FileText, Zap, Shield, TrendingUp, ArrowRight, Sparkles, Terminal, FileCode, Bug, BookOpen, Clock, Users, Image as ImageIcon, FileUp, Keyboard, Globe, ChevronDown, X, Menu } from 'lucide-react';
+import { 
+  Upload, Code, CheckCircle, AlertCircle, FileText, Zap, Shield, TrendingUp, 
+  ArrowRight, Sparkles, Terminal, FileCode, Bug, BookOpen, Clock, Users, 
+  Image as ImageIcon, FileUp, Keyboard, Globe, ChevronDown, X, Menu, Loader 
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -7,6 +11,7 @@ import axios from 'axios';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export default function CodeReview() {
+  // ========== ÉTATS DE BASE ==========
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState('improvements');
@@ -21,12 +26,18 @@ export default function CodeReview() {
   const [floatingElements, setFloatingElements] = useState([]);
   const navigate = useNavigate();
 
-  // ========== NOUVEAUX ÉTATS POUR LES TRADUCTIONS ==========
+  // ========== ÉTATS POUR LES TRADUCTIONS ==========
   const [translations, setTranslations] = useState({});
   const [loading, setLoading] = useState(true);
   const [languages, setLanguages] = useState([]);
 
-  // Traductions par défaut (fallback si le backend ne répond pas)
+  // ========== NOUVEAUX ÉTATS POUR L'ANALYSE ==========
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [guestStatus, setGuestStatus] = useState(null);
+  const [programmingLanguages, setProgrammingLanguages] = useState([]);
+  const [error, setError] = useState(null);
+
+  // Traductions par défaut (fallback)
   const defaultTranslations = {
     fr: {
       features: 'Fonctionnalités',
@@ -94,133 +105,16 @@ export default function CodeReview() {
       footerLegalPrivacy: 'Confidentialité',
       footerLegalTerms: 'Conditions',
       footerCopyright: '© 2026 CodeReview. Tous droits réservés.'
-    },
-    en: {
-      features: 'Features',
-      pricing: 'Pricing',
-      docs: 'Documentation',
-      start: 'Get Started',
-      hero: 'Code Review,',
-      heroHighlight: 'Instantly',
-      heroDesc: 'Powered by AI that understands your code. Detect errors, improve quality, and generate documentation automatically.',
-      tryFree: 'Try for Free',
-      uploadCode: 'Upload File',
-      pasteCode: 'Paste Code',
-      uploadImage: 'Image',
-      pasteCodeHere: 'Paste your code here...',
-      selectLanguage: 'Select Language',
-      analyze: 'Analyze',
-      clear: 'Clear',
-      uploadImageHere: 'Upload image here',
-      dropHere: 'Drop your file here',
-      analyzing: 'Analyzing...',
-      analysisComplete: 'Analysis Complete',
-      qualityScore: 'Quality Score',
-      improvements: 'Improvements',
-      smells: 'Code Smells',
-      documentation: 'Documentation',
-    },
-    ar: {
-      features: 'المميزات',
-      pricing: 'الأسعار',
-      docs: 'التوثيق',
-      start: 'ابدأ',
-      hero: 'مراجعة الكود،',
-      heroHighlight: 'فوراً',
-      heroDesc: 'مدعوم بالذكاء الاصطناعي الذي يفهم الكود الخاص بك. اكتشف الأخطاء، حسّن الجودة، وأنشئ التوثيق تلقائياً.',
-      tryFree: 'جرب مجاناً',
-      uploadCode: 'رفع ملف',
-      pasteCode: 'لصق الكود',
-      uploadImage: 'صورة',
-      pasteCodeHere: 'الصق الكود هنا...',
-      selectLanguage: 'اختر اللغة',
-      analyze: 'تحليل',
-      clear: 'مسح',
-      uploadImageHere: 'تحميل صورة هنا',
-      dropHere: 'أسقط ملفك هنا',
-      analyzing: 'جاري التحليل...',
-      analysisComplete: 'اكتمل التحليل',
-      qualityScore: 'نقاط الجودة',
-      improvements: 'تحسينات',
-      smells: 'مشاكل الكود',
-      documentation: 'التوثيق',
     }
   };
 
-  // ========== CHARGEMENT DES TRADUCTIONS DEPUIS LE BACKEND ==========
+  // ========== CHARGEMENT INITIAL ==========
   useEffect(() => {
     loadTranslations();
     loadLanguages();
-  }, []);
-
-  /**
-   * Charger toutes les traductions depuis le backend
-   */
-  const loadTranslations = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_URL}/translations`);
-      
-      if (response.data.success) {
-        setTranslations(response.data.data);
-        console.log('✅ Traductions chargées depuis le backend:', response.data.data);
-      }
-    } catch (err) {
-      console.error('❌ Erreur chargement traductions:', err);
-      console.log('⚠️ Utilisation des traductions par défaut');
-      setTranslations(defaultTranslations);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Charger la liste des langues disponibles
-   */
-  const loadLanguages = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/translations/languages`);
-      
-      if (response.data.success) {
-        const activeLanguages = response.data.languages
-          .filter(lang => lang.is_active)
-          .map(lang => ({
-            code: lang.code,
-            name: lang.name,
-            flag: lang.flag
-          }));
-        setLanguages(activeLanguages);
-      }
-    } catch (err) {
-      console.error('❌ Erreur chargement langues:', err);
-      // Fallback sur les langues par défaut
-      setLanguages([
-        { code: 'fr', name: 'Français', flag: '🇫🇷' },
-        { code: 'en', name: 'English', flag: '🇬🇧' },
-        { code: 'ar', name: 'العربية', flag: '🇸🇦' }
-      ]);
-    }
-  };
-
-  // Obtenir les traductions pour la langue active
-  const t = translations[language] || defaultTranslations[language] || defaultTranslations.fr;
-
-  const programmingLanguages = [
-    { code: 'python', name: 'Python', icon: '🐍' },
-    { code: 'javascript', name: 'JavaScript', icon: '📜' },
-    { code: 'typescript', name: 'TypeScript', icon: '💠' },
-    { code: 'java', name: 'Java', icon: '☕' },
-    { code: 'cpp', name: 'C++', icon: '⚡' },
-    { code: 'csharp', name: 'C#', icon: '#️⃣' },
-    { code: 'go', name: 'Go', icon: '🔷' },
-    { code: 'rust', name: 'Rust', icon: '🦀' },
-    { code: 'php', name: 'PHP', icon: '🐘' },
-    { code: 'ruby', name: 'Ruby', icon: '💎' },
-    { code: 'swift', name: 'Swift', icon: '🕊️' },
-    { code: 'kotlin', name: 'Kotlin', icon: '🟣' },
-  ];
-
-  useEffect(() => {
+    loadProgrammingLanguages();
+    checkGuestStatus();
+    
     const handleScroll = () => setScrollY(window.scrollY);
     window.addEventListener('scroll', handleScroll);
     
@@ -237,13 +131,176 @@ export default function CodeReview() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleAnalyze = () => {
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      setIsAnalyzing(false);
-      setShowResults(true);
-    }, 2500);
+  /**
+   * Charger les traductions
+   */
+  const loadTranslations = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API_URL}/translations`);
+      
+      if (response.data.success) {
+        setTranslations(response.data.data);
+        console.log('✅ Traductions chargées');
+      }
+    } catch (err) {
+      console.error('❌ Erreur traductions:', err);
+      setTranslations(defaultTranslations);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  /**
+   * Charger les langues disponibles (FR/EN/AR)
+   */
+  const loadLanguages = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/translations/languages`);
+      
+      if (response.data.success) {
+        const activeLanguages = response.data.languages
+          .filter(lang => lang.is_active)
+          .map(lang => ({
+            code: lang.code,
+            name: lang.name,
+            flag: lang.flag
+          }));
+        setLanguages(activeLanguages);
+      }
+    } catch (err) {
+      console.error('❌ Erreur langues:', err);
+      setLanguages([
+        { code: 'fr', name: 'Français', flag: '🇫🇷' },
+        { code: 'en', name: 'English', flag: '🇬🇧' },
+        { code: 'ar', name: 'العربية', flag: '🇸🇦' }
+      ]);
+    }
+  };
+
+  /**
+   * Charger les langages de programmation depuis le backend
+   */
+  const loadProgrammingLanguages = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/analyze/programming-languages`);
+      
+      if (response.data.success) {
+        setProgrammingLanguages(response.data.languages);
+        console.log('✅ Langages de programmation chargés:', response.data.languages);
+      }
+    } catch (err) {
+      console.error('❌ Erreur langages programmation:', err);
+      // Fallback
+      setProgrammingLanguages([
+        { code: 'python', name: 'Python', icon: '🐍' },
+        { code: 'javascript', name: 'JavaScript', icon: '📜' },
+        { code: 'typescript', name: 'TypeScript', icon: '💠' },
+        { code: 'java', name: 'Java', icon: '☕' },
+        { code: 'cpp', name: 'C++', icon: '⚡' },
+        { code: 'csharp', name: 'C#', icon: '#️⃣' },
+        { code: 'go', name: 'Go', icon: '🔷' },
+        { code: 'rust', name: 'Rust', icon: '🦀' },
+        { code: 'php', name: 'PHP', icon: '🐘' },
+        { code: 'ruby', name: 'Ruby', icon: '💎' },
+        { code: 'swift', name: 'Swift', icon: '🕊️' },
+        { code: 'kotlin', name: 'Kotlin', icon: '🟣' }
+      ]);
+    }
+  };
+
+  /**
+   * Vérifier le statut invité
+   */
+  const checkGuestStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (token) return; // Si connecté, pas besoin
+
+      const response = await axios.get(`${API_URL}/analyze/guest-status`);
+      if (response.data.success) {
+        setGuestStatus(response.data);
+        console.log('📊 Statut invité:', response.data);
+      }
+    } catch (err) {
+      console.error('❌ Erreur statut invité:', err);
+    }
+  };
+
+  /**
+   * Fonction d'analyse du code
+   */
+  const handleAnalyze = async () => {
+    const token = localStorage.getItem('token');
+    
+    // Vérifier si connecté pour upload/image
+    if (!token && (inputMethod === 'upload' || inputMethod === 'image')) {
+      alert('⚠️ Vous devez être connecté pour télécharger des fichiers ou des images.\n\nConnectez-vous pour accéder à cette fonctionnalité !');
+      navigate('/login');
+      return;
+    }
+
+    // Vérifier si du code est entré pour la méthode 'code'
+    if (inputMethod === 'code' && !codeInput.trim()) {
+      alert('⚠️ Veuillez entrer du code à analyser');
+      return;
+    }
+
+    try {
+      setIsAnalyzing(true);
+      setError(null);
+
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+      const response = await axios.post(
+        `${API_URL}/analyze`,
+        {
+          code: codeInput,
+          language: programmingLanguage,
+          fileName: `code.${programmingLanguage}`
+        },
+        { headers }
+      );
+
+      if (response.data.success) {
+        console.log('✅ Analyse réussie:', response.data);
+        setAnalysisResult(response.data.data);
+        
+        // Mettre à jour le statut invité
+        if (response.data.isGuest) {
+          setGuestStatus({
+            remaining: response.data.remainingAnalyses,
+            limit: 3,
+            currentCount: 3 - response.data.remainingAnalyses,
+            hasReachedLimit: response.data.remainingAnalyses === 0
+          });
+        }
+
+        // Simuler l'animation d'analyse
+        setTimeout(() => {
+          setIsAnalyzing(false);
+          setShowResults(true);
+        }, 2500);
+      }
+
+    } catch (error) {
+      setIsAnalyzing(false);
+      console.error('❌ Erreur analyse:', error);
+
+      if (error.response?.data?.requiresAuth) {
+        // Limite atteinte pour invité
+        alert(`🚫 ${error.response.data.message}\n\n✨ Connectez-vous pour des analyses illimitées !`);
+        navigate('/login');
+      } else {
+        const errorMsg = error.response?.data?.message || error.message;
+        setError(`Erreur lors de l'analyse: ${errorMsg}`);
+        alert(`❌ Erreur: ${errorMsg}`);
+      }
+    }
+  };
+
+  // Obtenir les traductions pour la langue active
+  const t = translations[language] || defaultTranslations[language] || defaultTranslations.fr;
 
   // ========== AFFICHAGE DU CHARGEMENT ==========
   if (loading) {
@@ -362,9 +419,6 @@ export default function CodeReview() {
               <a href="#features" className="block text-sm text-gray-700 hover:text-purple-600 py-2">
                 {t.features}
               </a>
-              <a href="#pricing" className="block text-sm text-gray-700 hover:text-purple-600 py-2">
-                {t.pricing}
-              </a>
               <a href="#" className="block text-sm text-gray-700 hover:text-purple-600 py-2">
                 {t.docs}
               </a>
@@ -385,7 +439,10 @@ export default function CodeReview() {
                   </button>
                 ))}
               </div>
-              <button className="w-full px-5 py-2.5 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium">
+              <button 
+                onClick={() => navigate('/login')}
+                className="w-full px-5 py-2.5 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium"
+              >
                 {t.start}
               </button>
             </div>
@@ -445,7 +502,6 @@ export default function CodeReview() {
               ))}
             </div>
 
-            {/* Le reste du code continue... */}
             {/* Upload/Analysis Area */}
             {!showResults && !isAnalyzing && (
               <div className="animate-fade-in">
@@ -520,7 +576,10 @@ export default function CodeReview() {
                 )}
 
                 {inputMethod === 'upload' && (
-                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-dashed border-purple-300 p-8 sm:p-16 text-center transition-all hover:border-purple-500 hover:bg-white hover:shadow-2xl cursor-pointer group">
+                  <div 
+                    onClick={handleAnalyze}
+                    className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-dashed border-purple-300 p-8 sm:p-16 text-center transition-all hover:border-purple-500 hover:bg-white hover:shadow-2xl cursor-pointer group"
+                  >
                     <div className="mb-4 sm:mb-6 inline-block">
                       <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-2xl sm:rounded-3xl shadow-lg flex items-center justify-center group-hover:scale-110 transition-transform">
                         <Upload className="w-8 h-8 sm:w-12 sm:h-12 text-purple-600 group-hover:animate-bounce" />
@@ -532,17 +591,17 @@ export default function CodeReview() {
                     <p className="text-xs sm:text-base text-gray-600 mb-4 sm:mb-6">
                       Python, JavaScript, TypeScript, Java, C++, Go...
                     </p>
-                    <button 
-                      onClick={handleAnalyze}
-                      className="px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-xl transition-all font-medium hover:scale-105"
-                    >
+                    <div className="px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-xl transition-all font-medium hover:scale-105 inline-block">
                       Sélectionner des fichiers
-                    </button>
+                    </div>
                   </div>
                 )}
 
                 {inputMethod === 'image' && (
-                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-dashed border-blue-300 p-8 sm:p-16 text-center transition-all hover:border-blue-500 hover:bg-white hover:shadow-2xl cursor-pointer group">
+                  <div 
+                    onClick={handleAnalyze}
+                    className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-dashed border-blue-300 p-8 sm:p-16 text-center transition-all hover:border-blue-500 hover:bg-white hover:shadow-2xl cursor-pointer group"
+                  >
                     <div className="mb-4 sm:mb-6 inline-block">
                       <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-2xl sm:rounded-3xl shadow-lg flex items-center justify-center group-hover:scale-110 transition-transform">
                         <ImageIcon className="w-8 h-8 sm:w-12 sm:h-12 text-blue-600 group-hover:animate-pulse" />
@@ -554,12 +613,9 @@ export default function CodeReview() {
                     <p className="text-xs sm:text-base text-gray-600 mb-4 sm:mb-6">
                       Screenshots, photos de code, diagrammes...
                     </p>
-                    <button 
-                      onClick={handleAnalyze}
-                      className="px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl hover:shadow-xl transition-all font-medium hover:scale-105"
-                    >
+                    <div className="px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl hover:shadow-xl transition-all font-medium hover:scale-105 inline-block">
                       Sélectionner une image
-                    </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -598,7 +654,8 @@ export default function CodeReview() {
               </div>
             )}
 
-            {showResults && (
+            {/* Résultats d'analyse */}
+            {showResults && analysisResult && (
               <div className="bg-white/90 backdrop-blur-md rounded-2xl sm:rounded-3xl border border-purple-200 shadow-2xl overflow-hidden animate-scale-in">
                 {/* Results Header */}
                 <div className="bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 border-b border-green-200 p-4 sm:p-8">
@@ -612,13 +669,13 @@ export default function CodeReview() {
                           {t.analysisComplete}
                         </h3>
                         <p className="text-xs sm:text-base text-gray-600">
-                          Fichier : <span className="font-semibold text-purple-600">app.py</span>
+                          Langage : <span className="font-semibold text-purple-600">{programmingLanguage}</span>
                         </p>
                       </div>
                     </div>
                     <div className="text-center">
                       <div className="text-3xl sm:text-5xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 text-transparent bg-clip-text mb-1 animate-number-count">
-                        92/100
+                        {analysisResult.qualityScore}/100
                       </div>
                       <p className="text-xs sm:text-sm text-gray-600 font-medium">{t.qualityScore}</p>
                     </div>
@@ -653,45 +710,49 @@ export default function CodeReview() {
                 <div className="p-4 sm:p-8">
                   {activeTab === 'improvements' && (
                     <div className="space-y-4 animate-fade-in">
-                      <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-xl transition-all transform hover:scale-[1.02]">
-                        <div className="flex gap-3 sm:gap-4">
-                          <div className="flex-shrink-0">
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg">
-                              <AlertCircle className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+                      {analysisResult.improvements.map((improvement, index) => (
+                        <div key={index} className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-xl transition-all transform hover:scale-[1.02]">
+                          <div className="flex gap-3 sm:gap-4">
+                            <div className="flex-shrink-0">
+                              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg">
+                                <AlertCircle className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                              <h4 className="font-bold text-gray-900 text-sm sm:text-lg">Fonction trop complexe</h4>
-                              <span className="px-3 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">
-                                Ligne 45-78
-                              </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                                <h4 className="font-bold text-gray-900 text-sm sm:text-lg">{improvement.message}</h4>
+                                <span className="px-3 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">
+                                  Ligne {improvement.line}
+                                </span>
+                              </div>
+                              <p className="text-xs sm:text-base text-gray-700 mb-3 sm:mb-4">
+                                {improvement.suggestion}
+                              </p>
                             </div>
-                            <p className="text-xs sm:text-base text-gray-700 mb-3 sm:mb-4">
-                              La fonction <code className="px-2 py-1 bg-white rounded text-xs font-mono border border-gray-300">processData()</code> contient 
-                              34 lignes. Considérez la diviser en fonctions plus petites.
-                            </p>
                           </div>
                         </div>
-                      </div>
+                      ))}
                     </div>
                   )}
 
                   {activeTab === 'smells' && (
                     <div className="space-y-4 animate-fade-in">
-                      <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-xl sm:rounded-2xl p-4 sm:p-6">
-                        <div className="flex gap-3 sm:gap-4">
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                            <Bug className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-bold text-gray-900 mb-2 text-sm sm:text-lg">Variable inutilisée détectée</h4>
-                            <p className="text-xs sm:text-base text-gray-700 mb-3">
-                              La variable <code className="px-2 py-1 bg-white rounded text-xs font-mono border border-gray-300">tempData</code> est déclarée mais jamais utilisée.
-                            </p>
+                      {analysisResult.codeSmells.map((smell, index) => (
+                        <div key={index} className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+                          <div className="flex gap-3 sm:gap-4">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
+                              <Bug className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-bold text-gray-900 mb-2 text-sm sm:text-lg">{smell.message}</h4>
+                              <p className="text-xs sm:text-base text-gray-700 mb-3">
+                                Variable : <code className="px-2 py-1 bg-white rounded text-xs font-mono border border-gray-300">{smell.variable}</code>
+                              </p>
+                              <span className="text-xs text-gray-500">Ligne {smell.line}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      ))}
                     </div>
                   )}
 
@@ -705,8 +766,15 @@ export default function CodeReview() {
                           <div className="flex-1">
                             <h4 className="font-bold text-gray-900 mb-2 text-sm sm:text-lg">Documentation générée automatiquement</h4>
                             <p className="text-xs sm:text-base text-gray-700 mb-4">
-                              Commentaires docstring ajoutés pour <span className="font-bold text-green-600">8 fonctions</span>
+                              Couverture : <span className="font-bold text-green-600">{analysisResult.documentation.coverage}%</span>
                             </p>
+                            <div className="space-y-2">
+                              {analysisResult.documentation.missingDocs.map((doc, index) => (
+                                <div key={index} className="text-xs sm:text-sm text-gray-600">
+                                  • {doc.suggestion} (ligne {doc.line})
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -721,7 +789,11 @@ export default function CodeReview() {
                       ✨ Appliquer les corrections
                     </button>
                     <button 
-                      onClick={() => setShowResults(false)}
+                      onClick={() => {
+                        setShowResults(false);
+                        setAnalysisResult(null);
+                        setCodeInput('');
+                      }}
                       className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105"
                     >
                       Nouvelle analyse
@@ -730,11 +802,31 @@ export default function CodeReview() {
                 </div>
               </div>
             )}
+
+            {/* Indicateur de statut invité */}
+            {!localStorage.getItem('token') && guestStatus && !showResults && (
+              <div className="mt-6 bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center animate-fade-in">
+                <p className="text-sm text-amber-800 mb-2">
+                  <strong>Mode Invité :</strong> {guestStatus.remaining} analyse{guestStatus.remaining > 1 ? 's' : ''} restante{guestStatus.remaining > 1 ? 's' : ''} sur {guestStatus.limit}
+                </p>
+                {guestStatus.remaining === 0 ? (
+                  <p className="text-xs text-amber-700 mb-3">
+                    ⚠️ Limite atteinte ! Connectez-vous pour continuer.
+                  </p>
+                ) : null}
+                <button
+                  onClick={() => navigate('/login')}
+                  className="text-sm text-purple-600 hover:text-purple-700 font-semibold underline"
+                >
+                  Connectez-vous pour des analyses illimitées ✨
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
+      {/* Features Section - Inchangé */}
       <section id="features" className="py-12 sm:py-16 md:py-20 bg-white/50 backdrop-blur-sm relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12 sm:mb-16 animate-fade-in">
@@ -817,7 +909,7 @@ export default function CodeReview() {
         </div>
       </section>
 
-      {/* Stats Section */}
+      {/* Stats Section - Inchangé */}
       <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           {[...Array(10)].map((_, i) => (
@@ -856,7 +948,7 @@ export default function CodeReview() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* CTA Section - Inchangé */}
       <section className="py-12 sm:py-16 md:py-20 bg-white/50 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-4 sm:mb-6 animate-slide-up px-4">
@@ -865,7 +957,10 @@ export default function CodeReview() {
           <p className="text-sm sm:text-base md:text-lg text-gray-600 mb-6 sm:mb-10 animate-fade-in px-4">
             {t.ctaDesc}
           </p>
-          <button className="inline-flex items-center gap-2 sm:gap-3 px-6 sm:px-10 py-3 sm:py-5 text-sm sm:text-base md:text-lg bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl sm:rounded-2xl hover:shadow-2xl transition-all font-bold animate-pulse-button hover:scale-110">
+          <button 
+            onClick={() => navigate('/login')}
+            className="inline-flex items-center gap-2 sm:gap-3 px-6 sm:px-10 py-3 sm:py-5 text-sm sm:text-base md:text-lg bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl sm:rounded-2xl hover:shadow-2xl transition-all font-bold animate-pulse-button hover:scale-110"
+          >
             <Sparkles className="w-5 h-5 sm:w-6 sm:h-6" />
             {t.ctaButton}
             <ArrowRight className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -873,7 +968,7 @@ export default function CodeReview() {
         </div>
       </section>
 
-      {/* Footer */}
+      {/* Footer - Inchangé */}
       <footer className="bg-gray-900 text-white py-8 sm:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-6 sm:mb-8">
@@ -920,6 +1015,7 @@ export default function CodeReview() {
         </div>
       </footer>
 
+      {/* Styles CSS */}
       <style jsx>{`
         @keyframes float-slow {
           0%, 100% {

@@ -31,6 +31,14 @@ async function runMigrations() {
     await pool.query(migration2);
     console.log('✅ Migration 2: Données insérées');
 
+// Migration 3 - Tables d'analyse de code
+const migration3 = fs.readFileSync(
+  path.join(__dirname, '../migrations/create_analysis_tables.sql'),
+  'utf8'
+);
+await pool.query(migration3);
+console.log('✅ Migration 3: Tables d’analyse créées');
+
     console.log('\n🎉 Migrations terminées avec succès!');
     process.exit(0);
   } catch (error) {
