@@ -1,11 +1,13 @@
 // src/pages/User/UserDashboard.jsx
 import React, { useState, useEffect } from 'react';
-import { Terminal, Code, FileText, TrendingUp, Upload, Sparkles } from 'lucide-react';
+import { Terminal, Code, FileText, TrendingUp, Upload, Sparkles, History, BookOpen } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 import UserMenu from '../../components/UserMenu';
 
 export default function UserDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [floatingElements, setFloatingElements] = useState([]);
 
   useEffect(() => {
@@ -47,7 +49,10 @@ export default function UserDashboard() {
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b-2 border-gray-200 shadow-sm">
         <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-4">
           {/* Logo */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div 
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center gap-2 sm:gap-3 cursor-pointer"
+          >
             <div className="relative group">
               <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg">
                 <Terminal className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
@@ -58,6 +63,28 @@ export default function UserDashboard() {
               CodeReview
             </span>
           </div>
+
+          {/* Navigation */}
+          <nav className="hidden md:flex items-center gap-6">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors"
+            >
+              Tableau de bord
+            </button>
+            <button
+              onClick={() => navigate('/analyze')}
+              className="text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors"
+            >
+              Analyser
+            </button>
+            <button
+              onClick={() => navigate('/history')}
+              className="text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors"
+            >
+              Historique
+            </button>
+          </nav>
 
           {/* User Menu */}
           <UserMenu />
@@ -110,7 +137,7 @@ export default function UserDashboard() {
                       Statut
                     </p>
                     <p className="text-lg font-bold text-gray-900">
-                      Utilisateur
+                      Utilisateur Premium
                     </p>
                   </div>
                 </div>
@@ -125,8 +152,11 @@ export default function UserDashboard() {
           
           <div className="grid md:grid-cols-3 gap-6">
             {/* Nouvelle analyse */}
-            <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105">
-              <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mb-4 shadow-lg">
+            <div 
+              onClick={() => navigate('/analyze')}
+              className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105 group"
+            >
+              <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
                 <Upload className="w-7 h-7 text-white" />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">
@@ -138,9 +168,12 @@ export default function UserDashboard() {
             </div>
 
             {/* Mes analyses */}
-            <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105">
-              <div className="w-14 h-14 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl flex items-center justify-center mb-4 shadow-lg">
-                <Code className="w-7 h-7 text-white" />
+            <div 
+              onClick={() => navigate('/history')}
+              className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105 group"
+            >
+              <div className="w-14 h-14 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
+                <History className="w-7 h-7 text-white" />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">
                 Mes Analyses
@@ -151,9 +184,12 @@ export default function UserDashboard() {
             </div>
 
             {/* Documentation */}
-            <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105">
-              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-4 shadow-lg">
-                <FileText className="w-7 h-7 text-white" />
+            <div 
+              onClick={() => navigate('/#features')}
+              className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105 group"
+            >
+              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
+                <BookOpen className="w-7 h-7 text-white" />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">
                 Documentation

@@ -1,4 +1,3 @@
-// src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import Login from './pages/login';
@@ -6,6 +5,9 @@ import Signup from './pages/signup';
 import CodeReview from './pages/acceuil';
 import AdminDashboard from './pages/admin/Admindashboard';
 import UserDashboard from './pages/User/UserDashboard';
+import AnalysisPage from './pages/User/AnalysisPage';
+import HistoryPage from './pages/User/HistoryPage';
+import SettingsPage from './pages/admin/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 
@@ -46,12 +48,41 @@ function App() {
         } 
       />
       
+      <Route 
+        path="/settings" 
+        element={
+          <AdminRoute>
+            <SettingsPage />
+          </AdminRoute>
+        } 
+      />
+      
       {/* Routes protégées - User normal */}
       <Route 
         path="/dashboard" 
         element={
           <ProtectedRoute>
             {isAdmin ? <Navigate to="/admin/dashboard" replace /> : <UserDashboard />}
+          </ProtectedRoute>
+        } 
+      />
+
+      {/* 🆕 Route d'analyse pour utilisateurs connectés */}
+      <Route 
+        path="/analyze" 
+        element={
+          <ProtectedRoute>
+            {isAdmin ? <Navigate to="/admin/dashboard" replace /> : <AnalysisPage />}
+          </ProtectedRoute>
+        } 
+      />
+
+      {/* 🆕 Route d'historique pour utilisateurs connectés */}
+      <Route 
+        path="/history" 
+        element={
+          <ProtectedRoute>
+            {isAdmin ? <Navigate to="/admin/dashboard" replace /> : <HistoryPage />}
           </ProtectedRoute>
         } 
       />

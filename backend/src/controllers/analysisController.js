@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { validateLanguage, getLanguageName } = require('../utils/languageDetector');
 
 // Limites pour les utilisateurs invités
 const GUEST_ANALYSIS_LIMIT = 3;
@@ -12,11 +13,21 @@ exports.analyzeCode = async (req, res) => {
   
   try {
     const { code, language, fileName } = req.body;
-    console.log('📥 Données reçues:', { code: code?.substring(0, 50), language, fileName });
+    console.log('📥 Données reçues:', { 
+      codeLength: code?.length, 
+      language, 
+      fileName 
+    });
+    
+    // 🔧 DEBUG: Vérifier l'authentification
+    console.log('🔍 DEBUG req.user:', req.user);
+    console.log('🔍 DEBUG Authorization header:', req.headers.authorization);
     
     const userId = req.user?.id || null;
     const isGuest = !userId;
     const ipAddress = req.ip || req.connection.remoteAddress;
+
+    console.log('👤 Mode:', isGuest ? 'INVITÉ ❌' : 'CONNECTÉ ✅', '| UserID:', userId);
 
     // Validation
     if (!code || !language) {
@@ -24,6 +35,56 @@ exports.analyzeCode = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Le code et le langage sont requis'
+      });
+    }
+
+    // =========================================
+    // 🔍 NOUVELLE FONCTIONNALITÉ: DÉTECTION DU LANGAGE
+    // =========================================
+    console.log('🔍 Détection du langage du code...');
+    const languageValidation = validateLanguage(code, language);
+    
+    console.log('🔬 Résultat détection:', {
+      match: languageValidation.match,
+      detected: languageValidation.detected,
+      selected: language,
+      confidence: languageValidation.confidence
+    });
+
+    // Si le langage ne correspond pas
+    if (!languageValidation.match && !languageValidation.uncertain) {
+      console.log('⚠️ Langage non correspondant détecté!');
+      
+      // Récupérer le nom du langage détecté depuis la DB
+      const detectedLangQuery = await pool.query(
+        'SELECT code, name FROM programming_languages WHERE code = $1 AND is_active = true',
+        [languageValidation.detected]
+      );
+
+      const selectedLangQuery = await pool.query(
+        'SELECT code, name FROM programming_languages WHERE code = $1 AND is_active = true',
+        [language]
+      );
+
+      const detectedLanguageName = detectedLangQuery.rows.length > 0 
+        ? detectedLangQuery.rows[0].name 
+        : getLanguageName(languageValidation.detected);
+
+      const selectedLanguageName = selectedLangQuery.rows.length > 0
+        ? selectedLangQuery.rows[0].name
+        : getLanguageName(language);
+
+      // Retourner une erreur avec suggestion
+      return res.status(400).json({
+        success: false,
+        languageMismatch: true,
+        message: `Le code semble être du ${detectedLanguageName}, mais vous avez sélectionné ${selectedLanguageName}.`,
+        detectedLanguage: languageValidation.detected,
+        detectedLanguageName: detectedLanguageName,
+        selectedLanguage: language,
+        selectedLanguageName: selectedLanguageName,
+        confidence: Math.round(languageValidation.confidence * 100),
+        indicators: languageValidation.indicators
       });
     }
 
@@ -74,6 +135,8 @@ exports.analyzeCode = async (req, res) => {
           limit: GUEST_ANALYSIS_LIMIT
         });
       }
+    } else {
+      console.log('✅ Utilisateur connecté, pas de limite d\'analyses');
     }
 
     // Créer un projet
@@ -163,13 +226,17 @@ exports.analyzeCode = async (req, res) => {
         analyzedAt: resultInsert.rows[0].analyzed_at
       },
       isGuest,
-      remainingAnalyses
+      remainingAnalyses,
+      languageDetection: languageValidation.uncertain ? {
+        uncertain: true,
+        message: languageValidation.message
+      } : null
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('❌ Erreur analyzeCode:', error);
-    console.error('Stack trace:', error.stack); // ← IMPORTANT
+    console.error('Stack trace:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de l\'analyse du code',
@@ -181,14 +248,13 @@ exports.analyzeCode = async (req, res) => {
 };
 
 /**
- * Fonction de simulation d'analyse (à remplacer par une vraie analyse)
+ * Fonction de simulation d'analyse
  */
 function performCodeAnalysis(code, language) {
   const lines = code.split('\n').length;
   const chars = code.length;
   
-  // Simulation basique
-  const qualityScore = Math.floor(Math.random() * 30) + 70; // 70-100
+  const qualityScore = Math.floor(Math.random() * 30) + 70;
 
   const improvements = [
     {
@@ -247,8 +313,7 @@ function performCodeAnalysis(code, language) {
 }
 
 /**
- * Récupérer l'historique des analyses d'un utilisateur
- * GET /api/analyze/history
+ * Récupérer l'historique des analyses
  */
 exports.getAnalysisHistory = async (req, res) => {
   try {
@@ -259,7 +324,6 @@ exports.getAnalysisHistory = async (req, res) => {
     let params;
 
     if (userId) {
-      // Utilisateur connecté
       query = `
         SELECT 
           p.id as project_id,
@@ -278,7 +342,6 @@ exports.getAnalysisHistory = async (req, res) => {
       `;
       params = [userId];
     } else {
-      // Invité
       query = `
         SELECT 
           p.id as project_id,
@@ -317,7 +380,6 @@ exports.getAnalysisHistory = async (req, res) => {
 
 /**
  * Récupérer les détails d'une analyse
- * GET /api/analyze/:id
  */
 exports.getAnalysisDetails = async (req, res) => {
   try {
@@ -325,7 +387,6 @@ exports.getAnalysisDetails = async (req, res) => {
     const userId = req.user?.id;
     const ipAddress = req.ip || req.connection.remoteAddress;
 
-    // Vérifier les permissions
     let authCheck;
     if (userId) {
       authCheck = await pool.query(
@@ -352,7 +413,6 @@ exports.getAnalysisDetails = async (req, res) => {
       });
     }
 
-    // Récupérer les détails complets
     const result = await pool.query(
       `SELECT 
         ar.*,
@@ -383,8 +443,7 @@ exports.getAnalysisDetails = async (req, res) => {
 };
 
 /**
- * Vérifier le statut d'utilisation pour les invités
- * GET /api/analyze/guest-status
+ * Vérifier le statut invité
  */
 exports.getGuestStatus = async (req, res) => {
   try {
@@ -417,8 +476,7 @@ exports.getGuestStatus = async (req, res) => {
 };
 
 /**
- * Récupérer la liste des langages de programmation supportés
- * GET /api/analyze/programming-languages
+ * Récupérer les langages de programmation
  */
 exports.getProgrammingLanguages = async (req, res) => {
   try {

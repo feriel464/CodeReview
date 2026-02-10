@@ -108,8 +108,18 @@ export default function CodeReview() {
     }
   };
 
-  // ========== CHARGEMENT INITIAL ==========
+  // ========== 🆕 VÉRIFICATION CONNEXION AU CHARGEMENT ==========
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    
+    // Si l'utilisateur est connecté, rediriger vers le dashboard
+    if (token) {
+      console.log('✅ Utilisateur connecté, redirection vers /dashboard');
+      navigate('/dashboard');
+      return; // Arrêter l'exécution du reste
+    }
+
+    // Sinon, charger normalement la page d'accueil pour invités
     loadTranslations();
     loadLanguages();
     loadProgrammingLanguages();
@@ -129,7 +139,7 @@ export default function CodeReview() {
     setFloatingElements(elements);
     
     return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [navigate]);
 
   /**
    * Charger les traductions
@@ -191,7 +201,6 @@ export default function CodeReview() {
       }
     } catch (err) {
       console.error('❌ Erreur langages programmation:', err);
-      // Fallback
       setProgrammingLanguages([
         { code: 'python', name: 'Python', icon: '🐍' },
         { code: 'javascript', name: 'JavaScript', icon: '📜' },
@@ -214,9 +223,6 @@ export default function CodeReview() {
    */
   const checkGuestStatus = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (token) return; // Si connecté, pas besoin
-
       const response = await axios.get(`${API_URL}/analyze/guest-status`);
       if (response.data.success) {
         setGuestStatus(response.data);
@@ -287,8 +293,22 @@ export default function CodeReview() {
       setIsAnalyzing(false);
       console.error('❌ Erreur analyse:', error);
 
+      // Gestion du mismatch de langage
+      if (error.response?.data?.languageMismatch) {
+        const { message, detectedLanguageName, selectedLanguageName } = error.response.data;
+        
+        const userConfirm = window.confirm(
+          `${message}\n\n💡 Voulez-vous changer le langage de ${selectedLanguageName} vers ${detectedLanguageName} ?`
+        );
+
+        if (userConfirm) {
+          setProgrammingLanguage(error.response.data.detectedLanguage);
+          alert(`✅ Langage changé vers ${detectedLanguageName}. Cliquez sur "Analyser" à nouveau.`);
+        }
+        return;
+      }
+
       if (error.response?.data?.requiresAuth) {
-        // Limite atteinte pour invité
         alert(`🚫 ${error.response.data.message}\n\n✨ Connectez-vous pour des analyses illimitées !`);
         navigate('/login');
       } else {
@@ -313,7 +333,6 @@ export default function CodeReview() {
       </div>
     );
   }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 relative overflow-hidden">
       {/* Animated Background Elements */}
