@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const { validateLanguage, getLanguageName } = require('../utils/languageDetector');
+const { analyzeCode, calculateMetrics } = require('../utils/codeAnalyzer');
 
 // Limites pour les utilisateurs invités
 const GUEST_ANALYSIS_LIMIT = 3;
@@ -39,7 +40,7 @@ exports.analyzeCode = async (req, res) => {
     }
 
     // =========================================
-    // 🔍 NOUVELLE FONCTIONNALITÉ: DÉTECTION DU LANGAGE
+    // 🔍 DÉTECTION DU LANGAGE
     // =========================================
     console.log('🔍 Détection du langage du code...');
     const languageValidation = validateLanguage(code, language);
@@ -55,7 +56,6 @@ exports.analyzeCode = async (req, res) => {
     if (!languageValidation.match && !languageValidation.uncertain) {
       console.log('⚠️ Langage non correspondant détecté!');
       
-      // Récupérer le nom du langage détecté depuis la DB
       const detectedLangQuery = await pool.query(
         'SELECT code, name FROM programming_languages WHERE code = $1 AND is_active = true',
         [languageValidation.detected]
@@ -74,7 +74,6 @@ exports.analyzeCode = async (req, res) => {
         ? selectedLangQuery.rows[0].name
         : getLanguageName(language);
 
-      // Retourner une erreur avec suggestion
       return res.status(400).json({
         success: false,
         languageMismatch: true,
@@ -168,10 +167,15 @@ exports.analyzeCode = async (req, res) => {
     const codeVersionId = codeVersionResult.rows[0].id;
     console.log('✅ Code stocké, ID:', codeVersionId);
 
-    // Simuler l'analyse
+    // ✅ FIX: Utiliser await pour récupérer le vrai résultat (était manquant avant)
     console.log('🔬 Analyse du code...');
-    const analysisResult = performCodeAnalysis(code, language);
-    console.log('✅ Analyse terminée');
+    const analysisResult = await performCodeAnalysis(code, language);
+    console.log('✅ Analyse terminée, score:', analysisResult.qualityScore);
+    console.log('🎯 Résultat analyse:', JSON.stringify({
+      qualityScore: analysisResult.qualityScore,
+      improvementsCount: analysisResult.improvements?.length,
+      codeSmellsCount: analysisResult.codeSmells?.length,
+    }, null, 2));
 
     // Stocker les résultats d'analyse
     console.log('💾 Stockage des résultats...');
@@ -248,67 +252,119 @@ exports.analyzeCode = async (req, res) => {
 };
 
 /**
- * Fonction de simulation d'analyse
+ * ✅ FIX: Déclaration avec "async function" (hoistée) au lieu de "const"
+ * Analyse réelle du code avec ESLint/Pylint
  */
-function performCodeAnalysis(code, language) {
-  const lines = code.split('\n').length;
-  const chars = code.length;
+async function performCodeAnalysis(code, language) {
+  try {
+    console.log(`🔬 Analyse réelle du code ${language}...`);
+    
+    // Appeler le module d'analyse unifié
+    const rawAnalysis = await analyzeCode(code, language);
+    
+    // Si l'analyse a échoué
+    if (!rawAnalysis.success) {
+      console.error('❌ Analyse échouée:', rawAnalysis.error);
+      
+      return {
+        qualityScore: 0,
+        improvements: [],
+        codeSmells: [],
+        errors: [],
+        documentation: { coverage: 0, missingDocs: [] },
+        metrics: calculateBasicMetrics(code)
+      };
+    }
+    
+    console.log(`✅ Analyse réussie! Score: ${rawAnalysis.qualityScore}/100`);
+    
+    // Formater les résultats pour le frontend
+    return {
+      qualityScore: rawAnalysis.qualityScore,
+      improvements: rawAnalysis.improvements || [],
+      codeSmells: rawAnalysis.codeSmells || [],
+      errors: rawAnalysis.errors || [],
+      documentation: generateDocumentation(code, language, rawAnalysis),
+      metrics: rawAnalysis.metrics || calculateBasicMetrics(code),
+      ...(rawAnalysis.score !== undefined && { pylintScore: rawAnalysis.score }),
+      ...(rawAnalysis.simulated && { simulated: true })
+    };
+    
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'analyse:', error);
+    
+    return {
+      qualityScore: 0,
+      improvements: [{
+        type: 'error',
+        severity: 'error',
+        line: 1,
+        message: 'Erreur lors de l\'analyse du code',
+        suggestion: error.message
+      }],
+      codeSmells: [],
+      errors: [],
+      documentation: { coverage: 0, missingDocs: [] },
+      metrics: calculateBasicMetrics(code)
+    };
+  }
+}
+
+/**
+ * Calcule des métriques de base (fallback)
+ */
+function calculateBasicMetrics(code) {
+  const lines = code.split('\n');
   
-  const qualityScore = Math.floor(Math.random() * 30) + 70;
-
-  const improvements = [
-    {
-      type: 'complexity',
-      severity: 'warning',
-      line: Math.floor(Math.random() * lines) + 1,
-      message: 'Fonction trop complexe détectée',
-      suggestion: 'Considérez diviser cette fonction en fonctions plus petites'
-    },
-    {
-      type: 'naming',
-      severity: 'info',
-      line: Math.floor(Math.random() * lines) + 1,
-      message: 'Nom de variable peu descriptif',
-      suggestion: 'Utilisez des noms de variables plus explicites'
-    }
-  ];
-
-  const codeSmells = [
-    {
-      type: 'unused_variable',
-      severity: 'warning',
-      line: Math.floor(Math.random() * lines) + 1,
-      message: 'Variable déclarée mais non utilisée',
-      variable: 'tempData'
-    }
-  ];
-
-  const documentation = {
-    coverage: Math.floor(Math.random() * 40) + 60,
-    missingDocs: [
-      {
-        type: 'function',
-        name: 'processData',
-        line: Math.floor(Math.random() * lines) + 1,
-        suggestion: 'Ajoutez une docstring pour cette fonction'
-      }
-    ]
-  };
-
-  const metrics = {
-    lines,
-    characters: chars,
-    functions: Math.floor(lines / 10),
-    classes: Math.floor(lines / 50),
-    complexity: Math.floor(Math.random() * 15) + 5
-  };
-
   return {
-    qualityScore,
-    improvements,
-    codeSmells,
-    documentation,
-    metrics
+    lines: lines.length,
+    characters: code.length,
+    codeLines: lines.filter(l => l.trim().length > 0).length,
+    emptyLines: lines.filter(l => l.trim().length === 0).length,
+    functions: (code.match(/function\s+\w+|def\s+\w+/g) || []).length,
+    classes: (code.match(/class\s+\w+/g) || []).length
+  };
+}
+
+/**
+ * Génère la documentation basée sur l'analyse
+ */
+function generateDocumentation(code, language, analysis) {
+  // Si on a des infos de Pylint sur les docstrings
+  if (analysis.conventions) {
+    const missingDocs = analysis.conventions
+      .filter(c => c.symbol && c.symbol.includes('docstring'))
+      .map(c => ({
+        type: 'function',
+        name: c.obj || 'unknown',
+        line: c.line,
+        suggestion: c.message
+      }));
+    
+    const coverage = Math.max(0, 100 - (missingDocs.length * 20));
+    
+    return {
+      coverage,
+      missingDocs
+    };
+  }
+  
+  // Estimation basique pour JavaScript
+  const functionCount = (code.match(/function\s+\w+/g) || []).length;
+  const commentCount = (code.match(/\/\*\*[\s\S]*?\*\/|\/\/.*/g) || []).length;
+  
+  const coverage = functionCount > 0 
+    ? Math.min(100, Math.round((commentCount / functionCount) * 100))
+    : 100;
+  
+  return {
+    coverage,
+    missingDocs: coverage < 100 ? [{
+      type: 'function',
+      name: 'multiple',
+      line: 1,
+      suggestion: 'Ajoutez des commentaires pour documenter votre code'
+    }] : []
   };
 }
 

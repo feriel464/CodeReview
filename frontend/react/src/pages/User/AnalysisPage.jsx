@@ -11,6 +11,17 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+// ✅ FIX: État initial défini en dehors du composant pour réutilisation
+const INITIAL_ANALYSIS_RESULT = {
+  qualityScore: 0,
+  improvements: [],
+  codeSmells: [],
+  documentation: {
+    coverage: 0,
+    missingDocs: []
+  }
+};
+
 export default function AnalysisPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -22,7 +33,8 @@ export default function AnalysisPage() {
   const [codeInput, setCodeInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState(null);
+  // ✅ FIX: Utiliser l'état initial structuré (jamais null)
+  const [analysisResult, setAnalysisResult] = useState(INITIAL_ANALYSIS_RESULT);
   const [activeTab, setActiveTab] = useState('improvements');
   const [programmingLanguages, setProgrammingLanguages] = useState([]);
   const [floatingElements, setFloatingElements] = useState([]);
@@ -81,12 +93,26 @@ export default function AnalysisPage() {
       );
 
       if (response.data.success) {
-        setAnalysisResult(response.data.data);
+        // ✅ FIX: Fusionner avec l'état initial pour garantir toutes les propriétés
+        const data = response.data.data;
+        setAnalysisResult({
+          qualityScore: data.qualityScore ?? 0,
+          improvements: Array.isArray(data.improvements) ? data.improvements : [],
+          codeSmells: Array.isArray(data.codeSmells) ? data.codeSmells : [],
+          documentation: {
+            coverage: data.documentation?.coverage ?? 0,
+            missingDocs: Array.isArray(data.documentation?.missingDocs) ? data.documentation.missingDocs : []
+          },
+          metrics: data.metrics || {}
+        });
         
         setTimeout(() => {
           setIsAnalyzing(false);
           setShowResults(true);
         }, 2500);
+      } else {
+        setIsAnalyzing(false);
+        alert(response.data.message);
       }
 
     } catch (error) {
@@ -109,6 +135,21 @@ export default function AnalysisPage() {
         alert(`❌ Erreur: ${errorMsg}`);
       }
     }
+  };
+
+  // ✅ FIX: Fonction de reset propre
+  const handleReset = () => {
+    setShowResults(false);
+    setAnalysisResult(INITIAL_ANALYSIS_RESULT);
+    setCodeInput('');
+    setActiveTab('improvements');
+  };
+
+  // ✅ Helper pour obtenir la couleur du score
+  const getScoreColor = (score) => {
+    if (score >= 80) return 'from-green-600 to-emerald-600';
+    if (score >= 60) return 'from-yellow-500 to-orange-500';
+    return 'from-red-500 to-rose-600';
   };
 
   return (
@@ -300,7 +341,7 @@ export default function AnalysisPage() {
           )}
 
           {/* Results */}
-          {showResults && analysisResult && (
+          {showResults && (
             <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-purple-200 shadow-2xl overflow-hidden animate-scale-in">
               {/* Header */}
               <div className="bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 border-b border-green-200 p-8">
@@ -318,8 +359,9 @@ export default function AnalysisPage() {
                       </p>
                     </div>
                   </div>
+                  {/* ✅ FIX: Score affiché correctement avec couleur dynamique */}
                   <div className="text-center">
-                    <div className="text-5xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 text-transparent bg-clip-text mb-1">
+                    <div className={`text-5xl font-bold bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} text-transparent bg-clip-text mb-1`}>
                       {analysisResult.qualityScore}/100
                     </div>
                     <p className="text-sm text-gray-600 font-medium">Score de qualité</p>
@@ -331,21 +373,27 @@ export default function AnalysisPage() {
               <div className="border-b border-gray-200 px-8 bg-white/50 overflow-x-auto">
                 <div className="flex gap-8 min-w-max">
                   {[
-                    { id: 'improvements', label: 'Améliorations', icon: Sparkles, color: 'purple' },
-                    { id: 'smells', label: 'Code Smells', icon: Bug, color: 'pink' },
-                    { id: 'docs', label: 'Documentation', icon: BookOpen, color: 'blue' }
+                    { id: 'improvements', label: 'Améliorations', icon: Sparkles, count: analysisResult.improvements.length },
+                    { id: 'smells', label: 'Code Smells', icon: Bug, count: analysisResult.codeSmells.length },
+                    { id: 'docs', label: 'Documentation', icon: BookOpen, count: null }
                   ].map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex items-center gap-2 py-4 border-b-2 transition-all text-base font-semibold whitespace-nowrap ${
                         activeTab === tab.id
-                          ? `border-${tab.color}-600 text-${tab.color}-600`
+                          ? 'border-purple-600 text-purple-600'
                           : 'border-transparent text-gray-600 hover:text-gray-900'
                       }`}
                     >
                       <tab.icon className="w-5 h-5" />
                       {tab.label}
+                      {/* ✅ Badge avec compteur */}
+                      {tab.count !== null && tab.count > 0 && (
+                        <span className="ml-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
+                          {tab.count}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -353,54 +401,79 @@ export default function AnalysisPage() {
 
               {/* Tab Content */}
               <div className="p-8">
+                {/* Onglet Améliorations */}
                 {activeTab === 'improvements' && (
                   <div className="space-y-4">
-                    {analysisResult.improvements.map((improvement, index) => (
-                      <div key={index} className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl p-6">
-                        <div className="flex gap-4">
-                          <div className="flex-shrink-0">
-                            <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg">
-                              <AlertCircle className="w-7 h-7 text-white" />
+                    {analysisResult.improvements.length === 0 ? (
+                      <div className="text-center py-12 text-gray-500">
+                        <Sparkles className="w-12 h-12 mx-auto mb-3 text-green-400" />
+                        <p className="text-lg font-semibold text-green-600">Aucune amélioration nécessaire !</p>
+                        <p className="text-sm text-gray-500 mt-1">Votre code est déjà bien écrit 🎉</p>
+                      </div>
+                    ) : (
+                      analysisResult.improvements.map((improvement, index) => (
+                        <div key={index} className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl p-6">
+                          <div className="flex gap-4">
+                            <div className="flex-shrink-0">
+                              <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg">
+                                <AlertCircle className="w-7 h-7 text-white" />
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between gap-2 mb-2">
-                              <h4 className="font-bold text-gray-900 text-lg">{improvement.message}</h4>
-                              <span className="px-3 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">
-                                Ligne {improvement.line}
-                              </span>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <h4 className="font-bold text-gray-900 text-lg">{improvement.message}</h4>
+                                {improvement.line && (
+                                  <span className="px-3 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">
+                                    Ligne {improvement.line}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-base text-gray-700">
+                                {improvement.suggestion}
+                              </p>
                             </div>
-                            <p className="text-base text-gray-700">
-                              {improvement.suggestion}
-                            </p>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 )}
 
+                {/* Onglet Code Smells */}
                 {activeTab === 'smells' && (
                   <div className="space-y-4">
-                    {analysisResult.codeSmells.map((smell, index) => (
-                      <div key={index} className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-6">
-                        <div className="flex gap-4">
-                          <div className="w-12 h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                            <Bug className="w-7 h-7 text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-bold text-gray-900 mb-2 text-lg">{smell.message}</h4>
-                            <p className="text-base text-gray-700 mb-3">
-                              Variable : <code className="px-2 py-1 bg-white rounded text-xs font-mono border border-gray-300">{smell.variable}</code>
-                            </p>
-                            <span className="text-xs text-gray-500">Ligne {smell.line}</span>
+                    {analysisResult.codeSmells.length === 0 ? (
+                      <div className="text-center py-12 text-gray-500">
+                        <Bug className="w-12 h-12 mx-auto mb-3 text-green-400" />
+                        <p className="text-lg font-semibold text-green-600">Aucun code smell détecté !</p>
+                        <p className="text-sm text-gray-500 mt-1">Votre code est propre 🧹</p>
+                      </div>
+                    ) : (
+                      analysisResult.codeSmells.map((smell, index) => (
+                        <div key={index} className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-6">
+                          <div className="flex gap-4">
+                            <div className="w-12 h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
+                              <Bug className="w-7 h-7 text-white" />
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-bold text-gray-900 mb-2 text-lg">{smell.message}</h4>
+                              {smell.variable && (
+                                <p className="text-base text-gray-700 mb-3">
+                                  Variable : <code className="px-2 py-1 bg-white rounded text-xs font-mono border border-gray-300">{smell.variable}</code>
+                                </p>
+                              )}
+                              {smell.line && (
+                                <span className="text-xs text-gray-500">Ligne {smell.line}</span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 )}
 
+                {/* Onglet Documentation */}
                 {activeTab === 'docs' && (
                   <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-6">
                     <div className="flex gap-4">
@@ -410,14 +483,25 @@ export default function AnalysisPage() {
                       <div className="flex-1">
                         <h4 className="font-bold text-gray-900 mb-2 text-lg">Documentation générée automatiquement</h4>
                         <p className="text-base text-gray-700 mb-4">
-                          Couverture : <span className="font-bold text-green-600">{analysisResult.documentation.coverage}%</span>
+                          Couverture : <span className="font-bold text-green-600">{analysisResult.documentation?.coverage ?? 0}%</span>
                         </p>
+                        {/* ✅ Barre de progression de la couverture */}
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+                          <div 
+                            className="bg-gradient-to-r from-green-400 to-emerald-500 h-2.5 rounded-full transition-all duration-500"
+                            style={{ width: `${analysisResult.documentation?.coverage ?? 0}%` }}
+                          />
+                        </div>
                         <div className="space-y-2">
-                          {analysisResult.documentation.missingDocs.map((doc, index) => (
-                            <div key={index} className="text-sm text-gray-600">
-                              • {doc.suggestion} (ligne {doc.line})
+                          {(analysisResult.documentation?.missingDocs || []).map((doc, index) => (
+                            <div key={index} className="text-sm text-gray-600 flex items-start gap-2">
+                              <span className="text-amber-500 mt-0.5">⚠️</span>
+                              <span>{doc.suggestion} {doc.line ? `(ligne ${doc.line})` : ''}</span>
                             </div>
                           ))}
+                          {(analysisResult.documentation?.missingDocs || []).length === 0 && (
+                            <p className="text-sm text-green-600 font-medium">✅ Documentation complète !</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -431,12 +515,9 @@ export default function AnalysisPage() {
                   <button className="flex-1 px-6 py-4 text-base bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl hover:shadow-2xl transition-all font-semibold shadow-lg hover:scale-105">
                     ✨ Appliquer les corrections
                   </button>
+                  {/* ✅ FIX: Utiliser handleReset() au lieu de setAnalysisResult(null) */}
                   <button 
-                    onClick={() => {
-                      setShowResults(false);
-                      setAnalysisResult(null);
-                      setCodeInput('');
-                    }}
+                    onClick={handleReset}
                     className="px-6 py-4 text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105"
                   >
                     Nouvelle analyse
