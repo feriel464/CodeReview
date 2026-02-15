@@ -83,7 +83,7 @@ export default function Login() {
   useEffect(() => {
     // Rediriger si déjà connecté
     if (authService.isAuthenticated()) {
-      navigate('/dashboard');
+      navigate('/');
     }
 
     const elements = Array.from({ length: 15 }, (_, i) => ({
@@ -116,7 +116,7 @@ const handleSubmit = async (e) => {
       if (user.role === 'admin') {
         navigate('/admin/dashboard');
       } else {
-        navigate('/dashboard');
+        navigate('/');
       }
     }
   } catch (err) {

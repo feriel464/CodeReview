@@ -7,29 +7,29 @@ const { authMiddleware, optionalAuth } = require('../Middleware/Authmiddleware')
 // ROUTES PUBLIQUES (sans authentification)
 // =========================================
 
-// Récupérer les langages de programmation supportés
 router.get('/programming-languages', analysisController.getProgrammingLanguages);
-
-// Vérifier le statut invité
 router.get('/guest-status', analysisController.getGuestStatus);
 
 // =========================================
-// ROUTES AVEC AUTHENTIFICATION OPTIONNELLE
-// (accessible aux utilisateurs connectés ET invités)
+// ROUTES AVEC AUTH OPTIONNELLE
 // =========================================
 
-// ✅ CORRECTION PRINCIPALE: Utiliser optionalAuth au lieu de authMiddleware
-// Cela permet aux invités ET aux utilisateurs connectés d'analyser du code
 router.post('/', optionalAuth, analysisController.analyzeCode);
 
 // =========================================
-// ROUTES PROTÉGÉES (authentification requise)
+// ROUTES PROTÉGÉES
 // =========================================
 
-// Récupérer l'historique des analyses (seulement pour utilisateurs connectés)
+// Historique : récupérer
 router.get('/history', authMiddleware, analysisController.getAnalysisHistory);
 
-// Récupérer les détails d'une analyse
+// Historique : supprimer TOUT
+router.delete('/history', authMiddleware, analysisController.deleteAllHistory);
+
+// Historique : supprimer UN projet
+router.delete('/history/:projectId', authMiddleware, analysisController.deleteHistoryItem);
+
+// Détails d'une analyse
 router.get('/:id', authMiddleware, analysisController.getAnalysisDetails);
 
 module.exports = router;

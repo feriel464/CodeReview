@@ -73,7 +73,7 @@ export default function UserDashboard() {
               Tableau de bord
             </button>
             <button
-              onClick={() => navigate('/analyze')}
+              onClick={() => navigate('/')}
               className="text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors"
             >
               Analyser
@@ -153,7 +153,7 @@ export default function UserDashboard() {
           <div className="grid md:grid-cols-3 gap-6">
             {/* Nouvelle analyse */}
             <div 
-              onClick={() => navigate('/analyze')}
+              onClick={() => navigate('/')}
               className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105 group"
             >
               <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
