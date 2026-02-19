@@ -1,63 +1,356 @@
 /**
  * Module central d'analyse de code — codeAnalyzer.js
  *
- * Score réaliste et graduel :
- *  - Ne tombe jamais à 0 sauf code totalement cassé
- *  - Ne monte jamais à 100 sauf code parfait (très rare)
- *  - Pondération par sévérité + densité (nb problèmes / LOC)
- *  - Bonus pour commentaires, structure, nom cohérent
- *  - Python : intègre le score Pylint /10 comme ancre principale
+ * Système de scoring HYBRIDE en 3 couches :
+ *
+ *  Couche 1 — Validation syntaxique (garde-fou objectif)
+ *    → Détecte les erreurs de syntaxe graves AVANT l'IA
+ *    → Si code cassé : score plafonné à 30 max, IA non consultée
+ *
+ *  Couche 2 — DeepSeek IA (analyse sémantique intelligente)
+ *    → Analyse les problèmes de logique, style, architecture
+ *    → Retourne un score IA + liste de problèmes détaillés
+ *
+ *  Couche 3 — Score final hybride avec pénalités dures
+ *    → score_final = (score_IA × 0.6) + (score_syntaxe × 0.4)
+ *    → Pénalités non négociables sur erreurs critiques
+ *    → Clamp réaliste [5..97]
+ *
+ *  Fallback automatique si DeepSeek indisponible → analyse statique
  */
 
-const { analyzeJavaScript } = require('./eslintAnalyzer');
-const { analyzePython      } = require('./pylintAnalyzer');
+const axios = require('axios');
+
+// ─────────────────────────────────────────────────────────────
+//  CONFIGURATION DEEPSEEK
+// ─────────────────────────────────────────────────────────────
+const DEEPSEEK_CONFIG = {
+  apiUrl:      process.env.DEEPSEEK_API_URL  || 'https://api.deepseek.com/v1/chat/completions',
+  apiKey:      process.env.DEEPSEEK_API_KEY  || '',
+  model:       process.env.DEEPSEEK_MODEL    || 'deepseek-coder',
+  ollamaUrl:   process.env.OLLAMA_URL        || 'http://localhost:11434/api/chat',
+  ollamaModel: process.env.OLLAMA_MODEL      || 'deepseek-coder:6.7b',
+  useOllama:   process.env.USE_OLLAMA        === 'true',
+};
+
+// ─────────────────────────────────────────────────────────────
+//  PROMPT SYSTÈME — JSON strict
+// ─────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `Tu es un expert senior en révision de code avec 15 ans d'expérience.
+Analyse le code fourni et retourne UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant ou après.
+
+Structure JSON obligatoire :
+{
+  "qualityScore": <entier entre 0 et 100>,
+  "summary": "<résumé en 1-2 phrases>",
+  "errorCount": <entier>,
+  "warningCount": <entier>,
+  "conventionCount": <entier>,
+  "refactorCount": <entier>,
+  "errors": [
+    { "line": <entier>, "message": "<description précise>", "severity": "error", "suggestion": "<comment corriger>" }
+  ],
+  "warnings": [
+    { "line": <entier>, "message": "<description précise>", "severity": "warning", "suggestion": "<comment corriger>" }
+  ],
+  "improvements": [
+    { "line": <entier>, "message": "<description>", "severity": "convention|warning|info", "suggestion": "<amélioration>" }
+  ],
+  "codeSmells": [
+    { "line": <entier>, "message": "<description>", "severity": "error|warning|refactor", "variable": "<règle concernée>" }
+  ],
+  "metrics": {
+    "totalLines": <entier>,
+    "functions": <entier>,
+    "classes": <entier>,
+    "complexity": "<low|medium|high>",
+    "commentRatio": <entier 0-100>,
+    "docstrings": <entier>
+  }
+}
+
+RÈGLES STRICTES pour qualityScore :
+- Code avec erreurs de syntaxe graves (mots-clés mal utilisés, structure invalide) → 0 à 15
+- Code non fonctionnel mais partiellement valide → 15 à 35
+- Code fonctionnel avec beaucoup de problèmes → 35 à 55
+- Code correct avec améliorations notables → 55 à 75
+- Bon code avec améliorations mineures → 75 à 89
+- Code quasi parfait → 90 à 97
+
+Sois précis, donne les numéros de ligne exacts, explique en français.
+Ne retourne QUE le JSON.`;
+
+// ─────────────────────────────────────────────────────────────
+//  COUCHE 1 — VALIDATION SYNTAXIQUE (garde-fou objectif)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Valide la syntaxe du code AVANT d'appeler l'IA.
+ * @returns {{ syntaxScore: number, criticalErrors: Array, isBroken: boolean }}
+ *
+ * syntaxScore  : 0-100 (100 = pas d'erreurs syntaxiques)
+ * criticalErrors : erreurs graves trouvées
+ * isBroken     : true si le code est fondamentalement invalide (penalty ≥ 50)
+ */
+function validateSyntax(code, lang) {
+  const lines = code.split('\n');
+  const criticalErrors = [];
+  let penalty = 0;
+
+  if (lang === 'python') {
+    penalty += validatePythonSyntax(code, lines, criticalErrors);
+  } else if (['javascript', 'typescript'].includes(lang)) {
+    penalty += validateJSSyntax(code, lines, criticalErrors);
+  }
+
+  // Code trop court ou quasi-vide
+  if (lines.filter(l => l.trim()).length < 3) {
+    criticalErrors.push({ line: 1, message: 'Code trop court ou vide', severity: 'error' });
+    penalty += 60;
+  }
+
+  const syntaxScore = Math.max(0, 100 - penalty);
+  const isBroken    = penalty >= 50;
+
+  console.log(`🔍 Syntaxe [${lang}]: score=${syntaxScore} | isBroken=${isBroken} | erreurs=${criticalErrors.length}`);
+  return { syntaxScore, criticalErrors, isBroken };
+}
+
+// ─── Validation Python ────────────────────────────────────────
+function validatePythonSyntax(code, lines, criticalErrors) {
+  let penalty = 0;
+
+  const PYTHON_KEYWORDS = [
+    'if','else','elif','while','for','def','class','return',
+    'import','from','lambda','try','except','finally','with','pass','break',
+    'continue','and','or','not','in','is','True','False','None','yield','raise',
+    'global','nonlocal','assert','del','as','async','await',
+  ];
+
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+
+    // Mot-clé utilisé comme variable : keyword = valeur
+    for (const kw of PYTHON_KEYWORDS) {
+      if (new RegExp(`^${kw}\\s*=(?!=)`).test(trimmed)) {
+        criticalErrors.push({
+          line: i + 1,
+          message: `"${kw}" est un mot-clé Python réservé, impossible de l'utiliser comme variable`,
+          severity: 'error',
+          suggestion: `Renommez cette variable (ex: my_${kw})`,
+        });
+        penalty += 20;
+      }
+    }
+
+    // print sans parenthèses (Python 2 dans Python 3)
+    if (/^print\s+["']/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: 'Syntaxe Python 2 : print nécessite des parenthèses en Python 3',
+        severity: 'error',
+        suggestion: 'Utilisez print("...") avec parenthèses',
+      });
+      penalty += 15;
+    }
+
+    // while/if/for sans deux-points à la fin
+    if (/^(while|if|elif|for)\s+.+[^:]\s*$/.test(trimmed) && !trimmed.endsWith(':')) {
+      criticalErrors.push({
+        line: i + 1,
+        message: `Instruction "${trimmed.split(' ')[0]}" sans ":" à la fin`,
+        severity: 'error',
+        suggestion: `Ajoutez ":" → ${trimmed}:`,
+      });
+      penalty += 15;
+    }
+
+    // Condition incomplète : if x > :   (opérateur sans valeur)
+    if (/^(if|elif|while)\s+.*[><=!]\s*:/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: 'Condition incomplète : opérateur sans valeur de comparaison',
+        severity: 'error',
+        suggestion: 'Complétez la condition, ex: if x > 0:',
+      });
+      penalty += 20;
+    }
+
+    // return else (syntaxe invalide)
+    if (/^return\s+else/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: '"return else" est une syntaxe invalide en Python',
+        severity: 'error',
+        suggestion: 'Séparez return et else en blocs distincts',
+      });
+      penalty += 20;
+    }
+
+    // import from math (ordre inversé)
+    if (/^import\s+from\s+/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: 'Syntaxe d\'import incorrecte : "import from" n\'existe pas',
+        severity: 'error',
+        suggestion: 'Utilisez : from math import sqrt',
+      });
+      penalty += 15;
+    }
+
+    // def avec mot-clé réservé comme nom de fonction
+    if (/^def\s+(if|else|elif|while|for|class|return|import|lambda)\s*/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: 'Impossible de nommer une fonction avec un mot-clé réservé',
+        severity: 'error',
+        suggestion: 'Choisissez un nom valide pour la fonction',
+      });
+      penalty += 25;
+    }
+  });
+
+  return Math.min(penalty, 100);
+}
+
+// ─── Validation JavaScript / TypeScript ──────────────────────
+function validateJSSyntax(code, lines, criticalErrors) {
+  let penalty = 0;
+
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+
+    // Condition incomplète : if (x >)
+    if (/\bif\s*\([^)]*[><=!]\s*\)/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: 'Condition incomplète dans le if',
+        severity: 'error',
+        suggestion: 'Complétez la condition, ex: if (x > 0)',
+      });
+      penalty += 15;
+    }
+  });
+
+  // Parenthèses déséquilibrées
+  const openP  = (code.match(/\(/g) || []).length;
+  const closeP = (code.match(/\)/g) || []).length;
+  if (Math.abs(openP - closeP) > 2) {
+    criticalErrors.push({
+      line: 1,
+      message: `Parenthèses déséquilibrées : ${openP} ouvrantes / ${closeP} fermantes`,
+      severity: 'error',
+      suggestion: 'Vérifiez que chaque ( a son ) correspondant',
+    });
+    penalty += 25;
+  }
+
+  // Accolades déséquilibrées
+  const openB  = (code.match(/\{/g) || []).length;
+  const closeB = (code.match(/\}/g) || []).length;
+  if (Math.abs(openB - closeB) > 2) {
+    criticalErrors.push({
+      line: 1,
+      message: `Accolades déséquilibrées : ${openB} ouvrantes / ${closeB} fermantes`,
+      severity: 'error',
+      suggestion: 'Vérifiez que chaque { a son } correspondant',
+    });
+    penalty += 20;
+  }
+
+  return Math.min(penalty, 100);
+}
 
 // ─────────────────────────────────────────────────────────────
 //  ENTRÉE PRINCIPALE
 // ─────────────────────────────────────────────────────────────
 async function analyzeCode(code, language) {
-  console.log(`🔬 Analyse du code — langage: ${language}`);
+  console.log(`🤖 Analyse hybride (Syntaxe + DeepSeek) — langage: ${language}`);
 
   try {
     const lang = normalizeLanguage(language);
 
-    // ── 1. Analyse par l'outil dédié ──────────────────────────
-    let rawResults;
-    switch (lang) {
-      case 'javascript':
-      case 'typescript':
-        console.log('📜 ESLint');
-        rawResults = await analyzeJavaScript(code);
-        break;
-      case 'python':
-        console.log('🐍 Pylint');
-        rawResults = await analyzePython(code);
-        break;
-      default:
-        console.log('⚠️  Langage non supporté → simulation');
-        rawResults = simulateAnalysis(code, lang);
+    // ══════════════════════════════════════════════════════════
+    //  COUCHE 1 : Validation syntaxique — garde-fou objectif
+    // ══════════════════════════════════════════════════════════
+    const syntaxCheck = validateSyntax(code, lang);
+
+    // Code fondamentalement cassé → retour immédiat, pas d'appel IA
+    if (syntaxCheck.isBroken) {
+      console.log(`🚨 Code cassé détecté — score plafonné à 30 max (IA non consultée)`);
+      const metrics   = calculateMetrics(code);
+      const staticRes = runStaticAnalysis(code, lang);
+
+      const allSmells = [
+        ...syntaxCheck.criticalErrors,
+        ...(staticRes.codeSmells || []),
+      ];
+
+      // Score = 30% du score syntaxique (ex: syntaxScore=0 → score=0 ; syntaxScore=40 → score=12)
+      const brokenScore = Math.round(Math.min(30, syntaxCheck.syntaxScore * 0.30));
+
+      return {
+        success:         true,
+        qualityScore:    brokenScore,
+        summary:         `⚠️ Code invalide : ${syntaxCheck.criticalErrors.length} erreur(s) syntaxique(s) critique(s) détectée(s). Ce code ne peut pas s'exécuter.`,
+        improvements:    staticRes.improvements || [],
+        codeSmells:      allSmells,
+        errorCount:      allSmells.filter(e => e.severity === 'error').length,
+        warningCount:    allSmells.filter(e => e.severity === 'warning').length,
+        conventionCount: 0,
+        refactorCount:   0,
+        metrics,
+        language:        lang,
+        analyzedBy:      'syntax-validator',
+        timestamp:       new Date().toISOString(),
+      };
     }
 
-    // ── 2. Analyse statique manuelle (toujours) ───────────────
+    // ══════════════════════════════════════════════════════════
+    //  COUCHE 2 : DeepSeek IA — analyse sémantique
+    // ══════════════════════════════════════════════════════════
+    let aiResults = null;
+    try {
+      aiResults = await analyzeWithDeepSeek(code, lang);
+      console.log(`✅ DeepSeek OK — score IA brut: ${aiResults.qualityScore}`);
+    } catch (aiError) {
+      console.warn(`⚠️  DeepSeek indisponible: ${aiError.message} → fallback statique`);
+    }
+
     const staticResults = runStaticAnalysis(code, lang);
 
-    // ── 3. Fusion sans doublons ───────────────────────────────
-    const merged = mergeResults(rawResults, staticResults);
+    // ══════════════════════════════════════════════════════════
+    //  COUCHE 3 : Score final hybride
+    // ══════════════════════════════════════════════════════════
+    let merged;
+    let qualityScore;
 
-    // ── 4. Métriques finales ──────────────────────────────────
+    if (aiResults && aiResults.success) {
+      merged       = mergeResults(aiResults, staticResults);
+      qualityScore = calculateHybridScore(aiResults.qualityScore, syntaxCheck.syntaxScore, merged);
+    } else {
+      // Fallback si IA indisponible
+      console.log('🔄 Fallback → analyse statique uniquement');
+      merged = {
+        ...staticResults,
+        success: true,
+        fallback: true,
+        summary: `Analyse statique (IA indisponible). ${syntaxCheck.criticalErrors.length} erreur(s) syntaxique(s) détectée(s).`,
+        codeSmells: [...(staticResults.codeSmells || []), ...syntaxCheck.criticalErrors],
+      };
+      qualityScore = calculateFallbackScore(merged, calculateMetrics(code), lang, syntaxCheck.syntaxScore);
+    }
+
     const metrics = merged.metrics || calculateMetrics(code);
-
-    // ── 5. Score graduel et réaliste ─────────────────────────
-    const qualityScore = calculateQualityScore(merged, metrics, lang);
-
-    console.log(`🎯 Score final: ${qualityScore}/100`);
+    console.log(`🎯 Score final hybride: ${qualityScore}/100`);
 
     return {
       ...merged,
       qualityScore,
       metrics,
-      language: lang,
-      timestamp: new Date().toISOString(),
+      language:   lang,
+      analyzedBy: (aiResults && aiResults.success) ? 'deepseek-ai+syntax' : 'static+syntax',
+      timestamp:  new Date().toISOString(),
     };
 
   } catch (error) {
@@ -72,240 +365,338 @@ async function analyzeCode(code, language) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  ANALYSE STATIQUE MANUELLE
+//  COUCHE 3 — CALCUL DU SCORE HYBRIDE
 // ─────────────────────────────────────────────────────────────
-function runStaticAnalysis(code, lang) {
-  if (lang === 'python')     return staticAnalyzePython(code);
-  if (['javascript','typescript'].includes(lang)) return staticAnalyzeJS(code);
-  return { improvements: [], codeSmells: [], errorCount: 0, warningCount: 0, conventionCount: 0, refactorCount: 0 };
-}
+/**
+ * Formule :
+ *   hybrid = (score_IA × 0.60) + (score_syntaxe × 0.40)
+ *
+ * Pénalités dures (plafonds non négociables) :
+ *   erreurs ≥ 1  → max 70
+ *   erreurs ≥ 3  → max 50
+ *   erreurs ≥ 6  → max 30
+ *   erreurs ≥ 10 → max 15
+ *   syntaxScore < 30 → max 20
+ *   syntaxScore < 50 → max 40
+ *   syntaxScore < 70 → max 60
+ */
+function calculateHybridScore(aiScore, syntaxScore, results) {
+  // Formule hybride pondérée
+  const hybrid = Math.round((aiScore * 0.60) + (syntaxScore * 0.40));
 
-// ─── Statique Python ─────────────────────────────────────────
-function staticAnalyzePython(code) {
-  const lines = code.split('\n');
-  const improvements = [], codeSmells = [];
-  const seen = new Set();
+  // Compter les vraies erreurs
+  const errorsInSmells = (results.codeSmells || []).filter(s => s.severity === 'error').length;
+  const totalErrors    = Math.max(results.errorCount || 0, errorsInSmells);
 
-  const imp  = (line, msg, suggestion, sev = 'convention') => dedup(seen, improvements, { type: sev, severity: sev, line, message: msg, suggestion });
-  const smell = (line, msg, variable, sev = 'warning')    => dedup(seen, codeSmells,   { type: sev, severity: sev, line, message: msg, variable });
+  let maxAllowed = 97;
 
-  // Imbrication > 3 (aligné sur .pylintrc max-nested-blocks=3)
-  lines.forEach((line, i) => {
-    const depth = Math.floor((line.match(/^(\s*)/)[1].length) / 4);
-    if (depth >= 4) smell(i + 1, `Imbrication trop profonde (niveau ${depth}, max 3)`, 'too-many-nested-blocks', 'refactor');
-  });
+  // Pénalités basées sur le nombre d'erreurs
+  if      (totalErrors >= 10) maxAllowed = Math.min(maxAllowed, 15);
+  else if (totalErrors >= 6)  maxAllowed = Math.min(maxAllowed, 30);
+  else if (totalErrors >= 3)  maxAllowed = Math.min(maxAllowed, 50);
+  else if (totalErrors >= 1)  maxAllowed = Math.min(maxAllowed, 70);
 
-  // Fonctions pas snake_case
-  for (const m of code.matchAll(/^def ([A-Z][a-zA-Z0-9]*|[a-z]+[A-Z][a-zA-Z0-9]*)\s*\(/gm)) {
-    imp(lineOf(code, m.index), `Fonction "${m[1]}" devrait être en snake_case`, `Renommez en: "${toSnakeCase(m[1])}"`);
-  }
+  // Pénalités basées sur le score syntaxique
+  if      (syntaxScore < 30) maxAllowed = Math.min(maxAllowed, 20);
+  else if (syntaxScore < 50) maxAllowed = Math.min(maxAllowed, 40);
+  else if (syntaxScore < 70) maxAllowed = Math.min(maxAllowed, 60);
 
-  // Classes pas PascalCase
-  for (const m of code.matchAll(/^class ([a-z][a-zA-Z0-9]*)\s*[:(]/gm)) {
-    imp(lineOf(code, m.index), `Classe "${m[1]}" devrait être en PascalCase`, `Renommez en: "${toPascalCase(m[1])}"`);
-  }
+  // Plafond global selon les problèmes totaux
+  const totalProblems = (results.codeSmells || []).length + (results.improvements || []).length;
+  if (totalProblems === 0) maxAllowed = Math.min(maxAllowed, 97);
+  else                     maxAllowed = Math.min(maxAllowed, 95);
 
-  // Trop de paramètres (max 7 selon .pylintrc)
-  for (const m of code.matchAll(/^def (\w+)\(([^)]+)\)/gm)) {
-    const params = m[2].split(',').filter(p => p.trim() && p.trim() !== 'self' && p.trim() !== '**kwargs' && p.trim() !== '*args');
-    if (params.length > 7) smell(lineOf(code, m.index), `Fonction "${m[1]}" a trop de paramètres (${params.length} > 7)`, 'too-many-arguments', 'refactor');
-  }
+  const minScore   = totalErrors >= 8 ? 0 : 5;
+  const finalScore = Math.max(minScore, Math.min(maxAllowed, hybrid));
 
-  // Lignes > 100 (aligné sur votre FORMAT.max-line-length=100)
-  lines.forEach((line, i) => {
-    if (line.length > 100) imp(i + 1, `Ligne trop longue (${line.length} > 100 chars)`, 'Découpez cette ligne selon PEP8');
-  });
+  console.log(
+    `🏆 Hybride: IA=${aiScore} | syntaxe=${syntaxScore} | brut=${hybrid} | `
+    + `erreurs=${totalErrors} | maxAllowed=${maxAllowed} → FINAL=${finalScore}`
+  );
 
-  // Fonctions sans docstring
-  for (const m of code.matchAll(/^(def \w+\([^)]*\):)\s*\n(\s*)(?!""")/gm)) {
-    imp(lineOf(code, m.index), `Fonction sans docstring`, 'Ajoutez une docstring: """Description."""');
-  }
-
-  // Imports inutilisés (heuristique)
-  for (const m of code.matchAll(/^import (\w+)$/gm)) {
-    const mod = m[1];
-    if (!code.slice(m.index + m[0].length).match(new RegExp(`\\b${mod}\\s*\\.`))) {
-      smell(lineOf(code, m.index), `Import possiblement inutilisé: "${mod}"`, 'unused-import', 'warning');
-    }
-  }
-
-  // Variables assignées jamais utilisées (heuristique légère)
-  for (const m of code.matchAll(/^    (\w+)\s*=\s*[^=]/gm)) {
-    const vn = m[1];
-    if (vn === '_' || vn.startsWith('__')) continue;
-    if (!code.slice(m.index + m[0].length).match(new RegExp(`\\b${vn}\\b`))) {
-      imp(lineOf(code, m.index), `Variable "${vn}" assignée mais possiblement jamais utilisée`, 'Supprimez-la ou utilisez-la', 'warning');
-    }
-  }
-
-  const conventionCount = improvements.filter(i => i.severity === 'convention').length;
-  const warningCount    = [...improvements, ...codeSmells].filter(i => i.severity === 'warning').length;
-  const refactorCount   = codeSmells.filter(i => i.severity === 'refactor').length;
-  const errorCount      = codeSmells.filter(i => i.severity === 'error').length;
-
-  return { success: true, improvements, codeSmells, conventionCount, warningCount, refactorCount, errorCount, isStatic: true };
-}
-
-// ─── Statique JS ─────────────────────────────────────────────
-function staticAnalyzeJS(code) {
-  const lines = code.split('\n');
-  const improvements = [], codeSmells = [];
-  const seen = new Set();
-
-  const imp  = (line, msg, suggestion, sev = 'warning') => dedup(seen, improvements, { type: sev, severity: sev, line, message: msg, suggestion });
-  const smell = (line, msg, variable, sev = 'error')   => dedup(seen, codeSmells,   { type: sev, severity: sev, line, message: msg, variable });
-
-  // Imbrication > 3
-  lines.forEach((line, i) => {
-    const depth = Math.floor(line.match(/^(\s*)/)[0].length / 2);
-    if (depth > 6) smell(i + 1, `Imbrication trop profonde (niveau ${Math.floor(depth/2)})`, 'max-depth', 'warning');
-  });
-
-  // Lignes > 100
-  lines.forEach((line, i) => {
-    if (line.length > 100) imp(i + 1, `Ligne trop longue (${line.length} > 100 chars)`, 'Découpez cette ligne');
-  });
-
-  // Trop de paramètres (max 7)
-  for (const m of code.matchAll(/function\s+(\w+)\s*\(([^)]+)\)/g)) {
-    const params = m[2].split(',').filter(p => p.trim());
-    if (params.length > 7) smell(lineOf(code, m.index), `Fonction "${m[1]}" a trop de paramètres (${params.length} > 7)`, 'max-params', 'warning');
-  }
-
-  // Guillemets doubles (heuristique)
-  lines.forEach((line, i) => {
-    if (!line.trim().startsWith('//') && /"[^"]*"/.test(line) && !line.includes('`')) {
-      imp(i + 1, 'Préférez les guillemets simples aux doubles', "Remplacez \" par '");
-    }
-  });
-
-  const errorCount   = codeSmells.filter(i => i.severity === 'error').length;
-  const warningCount = [...improvements, ...codeSmells].filter(i => i.severity === 'warning').length;
-
-  return { success: true, improvements, codeSmells, conventionCount: 0, warningCount, refactorCount: 0, errorCount, isStatic: true };
+  return finalScore;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  FUSION
+//  APPEL DEEPSEEK IA
 // ─────────────────────────────────────────────────────────────
-function mergeResults(raw, stat) {
-  const dk = i => `${i.line}-${(i.message || '').substring(0, 35)}`;
-  const rawImpKeys   = new Set((raw.improvements || []).map(dk));
-  const rawSmellKeys = new Set((raw.codeSmells   || []).map(dk));
+async function analyzeWithDeepSeek(code, language) {
+  const userMessage = `Langage de programmation : ${language}
+
+Code à analyser :
+\`\`\`${language}
+${code}
+\`\`\`
+
+Analyse ce code et retourne uniquement le JSON demandé.`;
+
+  let responseText;
+
+  if (DEEPSEEK_CONFIG.useOllama) {
+    console.log(`🦙 Ollama (${DEEPSEEK_CONFIG.ollamaModel})...`);
+    const response = await axios.post(
+      DEEPSEEK_CONFIG.ollamaUrl,
+      {
+        model:    DEEPSEEK_CONFIG.ollamaModel,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: userMessage },
+        ],
+        stream:  false,
+        options: { temperature: 0.1 },
+      },
+      { timeout: 120000 }
+    );
+    responseText = response.data?.message?.content || response.data?.response || '';
+
+  } else {
+    if (!DEEPSEEK_CONFIG.apiKey) throw new Error('DEEPSEEK_API_KEY manquante dans .env');
+
+    console.log(`🌐 DeepSeek API (${DEEPSEEK_CONFIG.model})...`);
+    const response = await axios.post(
+      DEEPSEEK_CONFIG.apiUrl,
+      {
+        model:       DEEPSEEK_CONFIG.model,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: userMessage },
+        ],
+        temperature: 0.1,
+        max_tokens:  3000,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${DEEPSEEK_CONFIG.apiKey}`,
+          'Content-Type':  'application/json',
+        },
+        timeout: 60000,
+      }
+    );
+    responseText = response.data?.choices?.[0]?.message?.content || '';
+  }
+
+  return parseAIResponse(responseText);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  PARSING DE LA RÉPONSE IA
+// ─────────────────────────────────────────────────────────────
+function parseAIResponse(responseText) {
+  if (!responseText || responseText.trim() === '') throw new Error('Réponse IA vide');
+
+  const cleaned = responseText
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Aucun JSON valide dans la réponse IA');
+
+  let parsed;
+  try { parsed = JSON.parse(jsonMatch[0]); }
+  catch (e) { throw new Error(`JSON invalide: ${e.message}`); }
+
+  const errors       = Array.isArray(parsed.errors)       ? parsed.errors       : [];
+  const warnings     = Array.isArray(parsed.warnings)     ? parsed.warnings     : [];
+  const improvements = Array.isArray(parsed.improvements) ? parsed.improvements : [];
+  const codeSmells   = Array.isArray(parsed.codeSmells)   ? parsed.codeSmells   : [];
+
+  const allCodeSmells = [
+    ...codeSmells,
+    ...errors.map(e => ({
+      line: e.line || 1, message: e.message || '',
+      severity: 'error', variable: e.suggestion || 'error',
+    })),
+  ];
+
+  const allImprovements = [
+    ...improvements,
+    ...warnings.map(w => ({
+      line: w.line || 1, message: w.message || '',
+      severity: 'warning', suggestion: w.suggestion || '',
+    })),
+  ];
 
   return {
-    ...raw,
     success:         true,
-    improvements:    [...(raw.improvements || []), ...(stat.improvements || []).filter(i => !rawImpKeys.has(dk(i)))],
-    codeSmells:      [...(raw.codeSmells   || []), ...(stat.codeSmells   || []).filter(i => !rawSmellKeys.has(dk(i)))],
-    errorCount:      (raw.errorCount      || 0) + (stat.errorCount      || 0),
-    warningCount:    (raw.warningCount     || 0) + (stat.warningCount    || 0),
-    conventionCount: (raw.conventionCount  || 0) + (stat.conventionCount || 0),
-    refactorCount:   (raw.refactorCount    || 0) + (stat.refactorCount   || 0),
-    score:           raw.score,
+    qualityScore:    Math.max(0, Math.min(100, parseInt(parsed.qualityScore) || 50)),
+    summary:         parsed.summary        || '',
+    errors,
+    warnings,
+    improvements:    allImprovements,
+    codeSmells:      allCodeSmells,
+    errorCount:      parseInt(parsed.errorCount)      || errors.length,
+    warningCount:    parseInt(parsed.warningCount)    || warnings.length,
+    conventionCount: parseInt(parsed.conventionCount) || 0,
+    refactorCount:   parseInt(parsed.refactorCount)   || 0,
+    metrics: {
+      totalLines:   parseInt(parsed.metrics?.totalLines)   || 0,
+      functions:    parseInt(parsed.metrics?.functions)    || 0,
+      classes:      parseInt(parsed.metrics?.classes)      || 0,
+      complexity:   parsed.metrics?.complexity             || 'medium',
+      commentRatio: parseInt(parsed.metrics?.commentRatio) || 0,
+      docstrings:   parseInt(parsed.metrics?.docstrings)   || 0,
+    },
   };
 }
 
 // ─────────────────────────────────────────────────────────────
-//  CALCUL DU SCORE — graduel, réaliste, jamais 0 sauf erreur grave
+//  ANALYSE STATIQUE COMPLÉMENTAIRE
 // ─────────────────────────────────────────────────────────────
-/**
- * Modèle de score :
- *
- * BASE = 100 − pénalités_pondérées
- *
- * Pénalités par ÉLÉMENT :
- *   error     → −10  (plafonné à −40 total pour cette catégorie)
- *   refactor  → −5   (plafonné à −20)
- *   warning   → −3   (plafonné à −15)
- *   convention→ −1.5 (plafonné à −10)
- *
- * Pénalité de DENSITÉ :
- *   (nbProblèmes / max(LOC, 1)) * 20  → problèmes tous les 5 lignes = −20
- *
- * BONUS :
- *   +5  commentRatio ≥ 10 %
- *   +3  docstrings ≥ 2 (Python)
- *   +3  commentRatio ≥ 20 %
- *
- * Pour Python : score Pylint /10 × 10 = score sur 100
- *   Score final = 60 % (pénalités) + 40 % (Pylint normalisé)
- *   → ancrage sur la vraie note Pylint
- *
- * Résultat clamped [5 .. 97] pour éviter les extrêmes artificiels
- * Sauf si errorCount ≥ 8 → min descend à 0 (code vraiment cassé)
- */
-function calculateQualityScore(results, metrics, lang) {
-  if (!results.success) return 0;
+function runStaticAnalysis(code, lang) {
+  if (lang === 'python') return staticAnalyzePython(code);
+  if (['javascript', 'typescript'].includes(lang)) return staticAnalyzeJS(code);
+  return { improvements: [], codeSmells: [], errorCount: 0, warningCount: 0, conventionCount: 0, refactorCount: 0 };
+}
 
+function staticAnalyzePython(code) {
+  const lines = code.split('\n');
+  const improvements = [], codeSmells = [];
+  const seen = new Set();
+  const imp   = (line, msg, suggestion, sev = 'convention') => dedup(seen, improvements, { type: sev, severity: sev, line, message: msg, suggestion });
+  const smell = (line, msg, variable, sev = 'warning')      => dedup(seen, codeSmells,   { type: sev, severity: sev, line, message: msg, variable });
+
+  lines.forEach((line, i) => {
+    const depth = Math.floor((line.match(/^(\s*)/)[1].length) / 4);
+    if (depth >= 4) smell(i + 1, `Imbrication trop profonde (niveau ${depth}, max 3)`, 'too-many-nested-blocks', 'refactor');
+  });
+  for (const m of code.matchAll(/^def ([A-Z][a-zA-Z0-9]*|[a-z]+[A-Z][a-zA-Z0-9]*)\s*\(/gm))
+    imp(lineOf(code, m.index), `Fonction "${m[1]}" devrait être en snake_case`, `Renommez en: "${toSnakeCase(m[1])}"`);
+  for (const m of code.matchAll(/^class ([a-z][a-zA-Z0-9]*)\s*[:(]/gm))
+    imp(lineOf(code, m.index), `Classe "${m[1]}" devrait être en PascalCase`, `Renommez en: "${toPascalCase(m[1])}"`);
+  for (const m of code.matchAll(/^def (\w+)\(([^)]+)\)/gm)) {
+    const params = m[2].split(',').filter(p => p.trim() && !['self','**kwargs','*args'].includes(p.trim()));
+    if (params.length > 7) smell(lineOf(code, m.index), `Fonction "${m[1]}" a trop de paramètres (${params.length} > 7)`, 'too-many-arguments', 'refactor');
+  }
+  lines.forEach((line, i) => { if (line.length > 100) imp(i + 1, `Ligne trop longue (${line.length} > 100 chars)`, 'Découpez cette ligne selon PEP8'); });
+  for (const m of code.matchAll(/^(def \w+\([^)]*\):)\s*\n(\s*)(?!""")/gm))
+    imp(lineOf(code, m.index), 'Fonction sans docstring', 'Ajoutez une docstring: """Description."""');
+  for (const m of code.matchAll(/^import (\w+)$/gm)) {
+    if (!code.slice(m.index + m[0].length).match(new RegExp(`\\b${m[1]}\\s*\\.`)))
+      smell(lineOf(code, m.index), `Import possiblement inutilisé: "${m[1]}"`, 'unused-import', 'warning');
+  }
+  for (const m of code.matchAll(/^    (\w+)\s*=\s*[^=]/gm)) {
+    const vn = m[1];
+    if (vn === '_' || vn.startsWith('__')) continue;
+    if (!code.slice(m.index + m[0].length).match(new RegExp(`\\b${vn}\\b`)))
+      imp(lineOf(code, m.index), `Variable "${vn}" assignée mais jamais utilisée`, 'Supprimez-la ou utilisez-la', 'warning');
+  }
+  return {
+    success: true, improvements, codeSmells, isStatic: true,
+    conventionCount: improvements.filter(i => i.severity === 'convention').length,
+    warningCount:    [...improvements, ...codeSmells].filter(i => i.severity === 'warning').length,
+    refactorCount:   codeSmells.filter(i => i.severity === 'refactor').length,
+    errorCount:      codeSmells.filter(i => i.severity === 'error').length,
+  };
+}
+
+function staticAnalyzeJS(code) {
+  const lines = code.split('\n');
+  const improvements = [], codeSmells = [];
+  const seen = new Set();
+  const imp   = (line, msg, suggestion, sev = 'warning') => dedup(seen, improvements, { type: sev, severity: sev, line, message: msg, suggestion });
+  const smell = (line, msg, variable, sev = 'error')     => dedup(seen, codeSmells,   { type: sev, severity: sev, line, message: msg, variable });
+
+  lines.forEach((line, i) => {
+    const depth = Math.floor(line.match(/^(\s*)/)[0].length / 2);
+    if (depth > 6) smell(i + 1, `Imbrication trop profonde (niveau ${Math.floor(depth / 2)})`, 'max-depth', 'warning');
+    if (line.length > 100) imp(i + 1, `Ligne trop longue (${line.length} > 100 chars)`, 'Découpez cette ligne');
+    if (!line.trim().startsWith('//') && /"[^"]*"/.test(line) && !line.includes('`'))
+      imp(i + 1, 'Préférez les guillemets simples aux doubles', "Remplacez \" par '");
+  });
+  for (const m of code.matchAll(/function\s+(\w+)\s*\(([^)]+)\)/g)) {
+    const params = m[2].split(',').filter(p => p.trim());
+    if (params.length > 7) smell(lineOf(code, m.index), `Fonction "${m[1]}" a trop de paramètres (${params.length} > 7)`, 'max-params', 'warning');
+  }
+  return {
+    success: true, improvements, codeSmells, isStatic: true,
+    conventionCount: 0,
+    errorCount:   codeSmells.filter(i => i.severity === 'error').length,
+    warningCount: [...improvements, ...codeSmells].filter(i => i.severity === 'warning').length,
+    refactorCount: 0,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  FUSION IA + STATIQUE (sans doublons)
+// ─────────────────────────────────────────────────────────────
+function mergeResults(aiRes, staticRes) {
+  const dk = i => `${i.line}-${(i.message || '').substring(0, 35)}`;
+  const aiImpKeys   = new Set((aiRes.improvements || []).map(dk));
+  const aiSmellKeys = new Set((aiRes.codeSmells   || []).map(dk));
+  return {
+    ...aiRes,
+    success:         true,
+    improvements:    [...(aiRes.improvements || []), ...(staticRes.improvements || []).filter(i => !aiImpKeys.has(dk(i)))],
+    codeSmells:      [...(aiRes.codeSmells   || []), ...(staticRes.codeSmells   || []).filter(i => !aiSmellKeys.has(dk(i)))],
+    errorCount:      (aiRes.errorCount      || 0) + (staticRes.errorCount      || 0),
+    warningCount:    (aiRes.warningCount     || 0) + (staticRes.warningCount    || 0),
+    conventionCount: (aiRes.conventionCount  || 0) + (staticRes.conventionCount || 0),
+    refactorCount:   (aiRes.refactorCount    || 0) + (staticRes.refactorCount   || 0),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  SCORE FALLBACK (si IA indisponible)
+// ─────────────────────────────────────────────────────────────
+function calculateFallbackScore(results, metrics, lang, syntaxScore = 100) {
+  if (!results.success) return 0;
   const codeSmells   = results.codeSmells   || [];
   const improvements = results.improvements || [];
   const LOC = Math.max(metrics?.codeLines || metrics?.totalLines || 1, 1);
 
-  // ── Pénalités par élément ────────────────────────────────
   const pen = { error: 0, refactor: 0, warning: 0, convention: 0, info: 0 };
   const cap = { error: 40, refactor: 20, warning: 15, convention: 10, info: 3 };
 
   codeSmells.forEach(s => {
-    if      (s.severity === 'error')   pen.error    = Math.min(cap.error,    pen.error    + 10);
-    else if (s.severity === 'refactor')pen.refactor = Math.min(cap.refactor, pen.refactor + 5);
-    else                               pen.warning  = Math.min(cap.warning,  pen.warning  + 3);
+    if      (s.severity === 'error')    pen.error    = Math.min(cap.error,    pen.error    + 10);
+    else if (s.severity === 'refactor') pen.refactor = Math.min(cap.refactor, pen.refactor + 5);
+    else                                pen.warning  = Math.min(cap.warning,  pen.warning  + 3);
   });
   improvements.forEach(i => {
-    if      (i.severity === 'warning')   pen.warning    = Math.min(cap.warning,    pen.warning    + 3);
-    else if (i.severity === 'convention')pen.convention = Math.min(cap.convention, pen.convention + 1.5);
-    else                                 pen.info       = Math.min(cap.info,       pen.info       + 0.5);
+    if      (i.severity === 'warning')    pen.warning    = Math.min(cap.warning,    pen.warning    + 3);
+    else if (i.severity === 'convention') pen.convention = Math.min(cap.convention, pen.convention + 1.5);
+    else                                  pen.info       = Math.min(cap.info,       pen.info       + 0.5);
   });
 
   const penaltyByItems = pen.error + pen.refactor + pen.warning + pen.convention + pen.info;
+  const totalProblems  = codeSmells.length + improvements.length;
+  const penaltyDensity = Math.min(25, (totalProblems / LOC) * 20);
 
-  // ── Pénalité de densité ──────────────────────────────────
-  const totalProblems = codeSmells.length + improvements.length;
-  const density = totalProblems / LOC;  // ex: 0.2 = 1 pb toutes 5 lignes
-  const penaltyDensity = Math.min(25, density * 20);
+  const baseScore = 100 - penaltyByItems - penaltyDensity;
+  const combined  = Math.round((baseScore * 0.60) + (syntaxScore * 0.40));
 
-  // ── Score de base ────────────────────────────────────────
-  let baseScore = 100 - penaltyByItems - penaltyDensity;
-
-  // ── Bonus qualité ────────────────────────────────────────
-  const commentRatio = metrics?.commentRatio || 0;
-  const docstrings   = metrics?.docstrings   || 0;
-  let bonus = 0;
-  if (commentRatio >= 20) bonus += 5;
-  else if (commentRatio >= 10) bonus += 3;
-  if (lang === 'python' && docstrings >= 2) bonus += 3;
-  else if (lang === 'python' && docstrings >= 1) bonus += 1;
-
-  baseScore += bonus;
-
-  // ── Pour Python : pondération avec score Pylint ──────────
-  let finalScore;
-  if (lang === 'python' && results.score !== undefined) {
-    // Pylint score [0-10] → [0-100]
-    const pylintNorm = Math.max(0, Math.min(100, Math.round(results.score * 10)));
-    // 60 % pénalités item + 40 % pylint → ancrage sur la note officielle
-    finalScore = Math.round(baseScore * 0.6 + pylintNorm * 0.4);
-  } else {
-    finalScore = Math.round(baseScore);
-  }
-
-  // ── Clamp réaliste ───────────────────────────────────────
   const minScore = (results.errorCount || 0) >= 8 ? 0 : 5;
   const maxScore = totalProblems === 0 ? 97 : 95;
+  return Math.max(minScore, Math.min(maxScore, combined));
+}
 
-  finalScore = Math.max(minScore, Math.min(maxScore, finalScore));
-
-  const errC = results.errorCount || 0;
-  const wrnC = results.warningCount || 0;
-  const conC = results.conventionCount || 0;
-  const refC = results.refactorCount || 0;
-  console.log(
-    `🏆 Score ${lang}: E=${errC} W=${wrnC} C=${conC} R=${refC} | `
-    + `density=${density.toFixed(3)} | pen=${penaltyByItems.toFixed(1)}+${penaltyDensity.toFixed(1)} | `
-    + `bonus=${bonus} → ${finalScore}/100`
-  );
-
-  return finalScore;
+// ─────────────────────────────────────────────────────────────
+//  MÉTRIQUES
+// ─────────────────────────────────────────────────────────────
+function calculateMetrics(code) {
+  const lines = code.split('\n');
+  const nonEmpty = lines.filter(l => l.trim().length > 0);
+  const commentLines = lines.filter(l => {
+    const t = l.trim();
+    return t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+  });
+  const docstrings   = (code.match(/"""[\s\S]*?"""|'''[\s\S]*?'''/g) || []).length;
+  const commentRatio = nonEmpty.length > 0
+    ? Math.round(((commentLines.length + docstrings) / nonEmpty.length) * 100)
+    : 0;
+  return {
+    totalLines:    lines.length,
+    codeLines:     nonEmpty.length,
+    commentLines:  commentLines.length,
+    emptyLines:    lines.length - nonEmpty.length,
+    characters:    code.length,
+    avgLineLength: Math.round(code.length / Math.max(lines.length, 1)),
+    commentRatio,
+    docstrings,
+    functions: (code.match(/(?:def |function |\w+\s*=\s*(?:async\s+)?\()/g) || []).length,
+    classes:   (code.match(/(?:^class |^class\t)/gm) || []).length,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -338,34 +729,16 @@ function normalizeLanguage(language) {
     go: 'go',                 golang: 'go',
     rust: 'rust',             php: 'php', ruby: 'ruby',
   };
-  return map[language.toLowerCase()] || language.toLowerCase();
+  return map[(language || '').toLowerCase()] || (language || '').toLowerCase();
 }
 
-function simulateAnalysis(code, language) {
-  const lines = code.split('\n').length;
-  return {
-    success: true, simulated: true,
-    errors: [], warnings: [],
-    improvements: [{ type: 'info', severity: 'info', line: 1,
-      message: `Analyse statique uniquement pour ${language}`,
-      suggestion: 'Support ESLint/Pylint non disponible pour ce langage' }],
-    codeSmells: [],
-    errorCount: 0, warningCount: 0,
-    metrics: { totalLines: lines, characters: code.length, functions: Math.floor(lines / 10), classes: Math.floor(lines / 50) },
-  };
-}
-
-function calculateMetrics(code) {
-  const lines = code.split('\n');
-  return {
-    totalLines:    lines.length,
-    codeLines:     lines.filter(l => l.trim().length > 0 && !l.trim().startsWith('//')).length,
-    commentLines:  lines.filter(l => l.trim().startsWith('//')).length,
-    emptyLines:    lines.filter(l => l.trim().length === 0).length,
-    characters:    code.length,
-    avgLineLength: Math.round(code.length / Math.max(lines.length, 1)),
-    commentRatio:  0,
-  };
-}
-
-module.exports = { analyzeCode, calculateQualityScore, calculateMetrics, normalizeLanguage };
+// ─────────────────────────────────────────────────────────────
+//  EXPORTS
+// ─────────────────────────────────────────────────────────────
+module.exports = {
+  analyzeCode,
+  analyzeWithDeepSeek,
+  validateSyntax,
+  calculateMetrics,
+  normalizeLanguage,
+};

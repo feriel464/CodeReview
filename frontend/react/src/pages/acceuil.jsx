@@ -628,200 +628,326 @@ export default function CodeReview() {
               </div>
             )}
 
-            {/* ── RÉSULTATS ── */}
-            {showResults && (
-              <div ref={resultsRef} className="bg-white/90 backdrop-blur-md rounded-3xl border border-purple-200 shadow-2xl overflow-hidden animate-scale-in">
+        {/* ── RÉSULTATS ── */}
+{showResults && (
+  <div ref={resultsRef} className="animate-scale-in">
 
-                {/* Header résultats */}
-                <div className={`bg-gradient-to-r ${getScoreBg(analysisResult.qualityScore)} border-b p-6 sm:p-8`}>
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg">
-                        <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{t.analysisComplete}</h3>
-                        <p className="text-sm sm:text-base text-gray-600">
-                          Langage : <span className="font-semibold text-purple-600">{currentLang?.name || programmingLanguage}</span>
-                          {isLoggedIn && (
-                            <span className="ml-3 text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full font-medium">
-                              ✓ Analyse complète
-                            </span>
-                          )}
-                        </p>
-                      </div>
+    {/* ══════════════════════════════════════════════════════
+        CAS SPÉCIAL : Score = 0 → Code invalide / pas du code
+        ══════════════════════════════════════════════════════ */}
+    {analysisResult.qualityScore === 0 ? (
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl border-2 border-red-200 shadow-2xl overflow-hidden">
+
+        {/* Header rouge */}
+        <div className="bg-gradient-to-r from-red-50 via-rose-50 to-pink-50 border-b-2 border-red-200 p-8 sm:p-10 text-center">
+          {/* Emoji animé */}
+          <div className="text-7xl sm:text-8xl mb-4 animate-bounce-slow select-none">🤔</div>
+
+          <h3 className="text-2xl sm:text-3xl font-bold text-red-700 mb-3">
+            Oups… ce n'est pas vraiment du code !
+          </h3>
+          <p className="text-base sm:text-lg text-red-500 font-medium mb-2">
+            Score : <span className="font-bold text-red-700">0 / 100</span>
+          </p>
+          <p className="text-sm sm:text-base text-gray-600 max-w-xl mx-auto leading-relaxed">
+            Ce que vous avez soumis contient des erreurs syntaxiques trop graves pour être analysé.
+            Il ne s'agit pas d'un code valide et exécutable.
+          </p>
+        </div>
+
+        {/* Corps — erreurs détectées */}
+        <div className="p-6 sm:p-8">
+
+          {/* Bannière explicative */}
+          <div className="flex items-start gap-4 bg-red-50 border-2 border-red-200 rounded-2xl p-5 mb-6">
+            <span className="text-3xl flex-shrink-0">🚨</span>
+            <div>
+              <h4 className="font-bold text-red-700 mb-1 text-base sm:text-lg">
+                Erreurs critiques détectées ({analysisResult.codeSmells.length})
+              </h4>
+              <p className="text-sm text-red-600">
+                Les problèmes suivants empêchent totalement l'exécution de ce code.
+                Corrigez-les avant de réessayer.
+              </p>
+            </div>
+          </div>
+
+          {/* Liste des erreurs syntaxiques */}
+          <div className="space-y-3">
+            {analysisResult.improvements.length > 0
+              ? analysisResult.improvements.map((imp, i) => (
+                <div key={i} className="flex items-start gap-4 bg-white border-2 border-red-100 rounded-xl p-4 hover:border-red-300 hover:shadow-md transition-all">
+                  <div className="w-9 h-9 bg-gradient-to-br from-red-400 to-rose-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow">
+                    <span className="text-white text-sm font-bold">{i + 1}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
+                      <p className="font-semibold text-gray-900 text-sm sm:text-base">{imp.message}</p>
+                      {imp.line && (
+                        <span className="px-2.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold whitespace-nowrap border border-red-200">
+                          Ligne {imp.line}
+                        </span>
+                      )}
                     </div>
-                    {/* Score */}
-                    <div className="text-center">
-                      <div className={`text-5xl sm:text-6xl font-bold bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} text-transparent bg-clip-text mb-1 animate-number-count`}>
-                        {analysisResult.qualityScore}
-                        <span className="text-3xl text-gray-400">/100</span>
-                      </div>
-                      <p className="text-sm text-gray-600 font-medium">{t.qualityScore}</p>
-                      {/* Barre de score */}
-                      <div className="w-32 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
-                        <div className={`h-2 rounded-full bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} transition-all duration-1000`}
-                          style={{ width: `${analysisResult.qualityScore}%` }} />
-                      </div>
+                    {imp.suggestion && (
+                      <p className="text-xs sm:text-sm text-green-700 bg-green-50 rounded-lg px-3 py-1.5 mt-1 border border-green-200">
+                        💡 {imp.suggestion}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))
+              : analysisResult.codeSmells.map((smell, i) => (
+                <div key={i} className="flex items-start gap-4 bg-white border-2 border-red-100 rounded-xl p-4 hover:border-red-300 hover:shadow-md transition-all">
+                  <div className="w-9 h-9 bg-gradient-to-br from-red-400 to-rose-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow">
+                    <span className="text-white text-sm font-bold">{i + 1}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="font-semibold text-gray-900 text-sm sm:text-base">{smell.message}</p>
+                      {smell.line && (
+                        <span className="px-2.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold whitespace-nowrap border border-red-200">
+                          Ligne {smell.line}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
+              ))
+            }
+          </div>
 
-                {/* Tabs */}
-                <div className="border-b border-gray-200 px-6 sm:px-8 bg-white/50 overflow-x-auto">
-                  <div className="flex gap-6 sm:gap-8 min-w-max">
-                    {[
-                      { id: 'improvements', label: t.improvements, icon: Sparkles, count: analysisResult.improvements.length },
-                      { id: 'smells',       label: t.smells,       icon: Bug,      count: analysisResult.codeSmells.length },
-                      { id: 'docs',         label: t.documentation, icon: BookOpen, count: null },
-                    ].map(tab => (
-                      <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-2 py-4 border-b-2 transition-all text-sm sm:text-base font-semibold whitespace-nowrap ${
-                          activeTab === tab.id ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-600 hover:text-gray-900'
-                        }`}>
-                        <tab.icon className="w-4 h-4 sm:w-5 sm:h-5" />
-                        {tab.label}
-                        {tab.count !== null && tab.count > 0 && (
-                          <span className="ml-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
-                            {tab.count}
+          {/* Conseil */}
+          <div className="mt-6 bg-blue-50 border-2 border-blue-200 rounded-2xl p-5 flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">💡</span>
+            <div>
+              <p className="font-bold text-blue-700 mb-1">Comment corriger ?</p>
+              <ul className="text-sm text-blue-600 space-y-1 list-disc list-inside">
+                <li>N'utilisez pas de mots-clés Python comme noms de variables (<code className="bg-blue-100 px-1 rounded">if</code>, <code className="bg-blue-100 px-1 rounded">class</code>, <code className="bg-blue-100 px-1 rounded">lambda</code>…)</li>
+                <li>Ajoutez les parenthèses manquantes : <code className="bg-blue-100 px-1 rounded">print("hello")</code></li>
+                <li>Terminez les conditions par <code className="bg-blue-100 px-1 rounded">:</code> → <code className="bg-blue-100 px-1 rounded">while True:</code></li>
+                <li>Syntaxe d'import correcte : <code className="bg-blue-100 px-1 rounded">from math import sqrt</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-red-50 to-pink-50">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <button onClick={handleReset}
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105">
+              <span>🔄</span>
+              Réessayer avec du vrai code
+            </button>
+            <button
+              onClick={() => setCodeInput(`def hello_world():\n    """Exemple de code Python valide."""\n    message = "Hello, World!"\n    print(message)\n    return message\n\nhello_world()`)}
+              className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-blue-300 text-blue-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-semibold hover:scale-105 flex items-center gap-2">
+              <span>📋</span>
+              Voir un exemple valide
+            </button>
+          </div>
+        </div>
+      </div>
+
+    ) : (
+      /* ══════════════════════════════════════════════════════
+          CAS NORMAL : Score > 0 → Affichage standard
+          ══════════════════════════════════════════════════════ */
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-purple-200 shadow-2xl overflow-hidden">
+
+        {/* Header résultats */}
+        <div className={`bg-gradient-to-r ${getScoreBg(analysisResult.qualityScore)} border-b p-6 sm:p-8`}>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
+              </div>
+              <div>
+                <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{t.analysisComplete}</h3>
+                <p className="text-sm sm:text-base text-gray-600">
+                  Langage : <span className="font-semibold text-purple-600">{currentLang?.name || programmingLanguage}</span>
+                  {isLoggedIn && (
+                    <span className="ml-3 text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full font-medium">
+                      ✓ Analyse complète
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            {/* Score */}
+            <div className="text-center">
+              <div className={`text-5xl sm:text-6xl font-bold bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} text-transparent bg-clip-text mb-1 animate-number-count`}>
+                {analysisResult.qualityScore}
+                <span className="text-3xl text-gray-400">/100</span>
+              </div>
+              <p className="text-sm text-gray-600 font-medium">{t.qualityScore}</p>
+              <div className="w-32 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
+                <div className={`h-2 rounded-full bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} transition-all duration-1000`}
+                  style={{ width: `${analysisResult.qualityScore}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-gray-200 px-6 sm:px-8 bg-white/50 overflow-x-auto">
+          <div className="flex gap-6 sm:gap-8 min-w-max">
+            {[
+              { id: 'improvements', label: t.improvements, icon: Sparkles, count: analysisResult.improvements.length },
+              { id: 'smells',       label: t.smells,       icon: Bug,      count: analysisResult.codeSmells.length },
+              { id: 'docs',         label: t.documentation, icon: BookOpen, count: null },
+            ].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 py-4 border-b-2 transition-all text-sm sm:text-base font-semibold whitespace-nowrap ${
+                  activeTab === tab.id ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}>
+                <tab.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                {tab.label}
+                {tab.count !== null && tab.count > 0 && (
+                  <span className="ml-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Contenu tabs */}
+        <div className="p-6 sm:p-8">
+          {activeTab === 'improvements' && (
+            <div className="space-y-4 animate-fade-in">
+              {analysisResult.improvements.length === 0 ? (
+                <div className="text-center py-12">
+                  <Sparkles className="w-12 h-12 mx-auto mb-3 text-green-400" />
+                  <p className="text-lg font-semibold text-green-600">Aucune amélioration nécessaire !</p>
+                  <p className="text-sm text-gray-500 mt-1">Votre code est déjà bien écrit 🎉</p>
+                </div>
+              ) : analysisResult.improvements.map((imp, i) => (
+                <div key={i} className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl p-5 sm:p-6 hover:shadow-lg transition-all hover:scale-[1.01]">
+                  <div className="flex gap-3 sm:gap-4">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
+                      <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                        <h4 className="font-bold text-gray-900 text-sm sm:text-base">{imp.message}</h4>
+                        {imp.line && (
+                          <span className="px-2.5 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">
+                            Ligne {imp.line}
                           </span>
                         )}
-                      </button>
-                    ))}
+                      </div>
+                      <p className="text-xs sm:text-sm text-gray-700">{imp.suggestion}</p>
+                      {imp.severity && (
+                        <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${
+                          imp.severity === 'error'      ? 'bg-red-100 text-red-700'
+                          : imp.severity === 'warning'  ? 'bg-yellow-100 text-yellow-700'
+                          : imp.severity === 'convention' ? 'bg-blue-100 text-blue-700'
+                          : 'bg-gray-100 text-gray-600'
+                        }`}>{imp.severity}</span>
+                      )}
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          )}
 
-                {/* Contenu tabs */}
-                <div className="p-6 sm:p-8">
-                  {activeTab === 'improvements' && (
-                    <div className="space-y-4 animate-fade-in">
-                      {analysisResult.improvements.length === 0 ? (
-                        <div className="text-center py-12">
-                          <Sparkles className="w-12 h-12 mx-auto mb-3 text-green-400" />
-                          <p className="text-lg font-semibold text-green-600">Aucune amélioration nécessaire !</p>
-                          <p className="text-sm text-gray-500 mt-1">Votre code est déjà bien écrit 🎉</p>
-                        </div>
-                      ) : analysisResult.improvements.map((imp, i) => (
-                        <div key={i} className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl p-5 sm:p-6 hover:shadow-lg transition-all hover:scale-[1.01]">
-                          <div className="flex gap-3 sm:gap-4">
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
-                              <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                                <h4 className="font-bold text-gray-900 text-sm sm:text-base">{imp.message}</h4>
-                                {imp.line && (
-                                  <span className="px-2.5 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">
-                                    Ligne {imp.line}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs sm:text-sm text-gray-700">{imp.suggestion}</p>
-                              {imp.severity && (
-                                <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${
-                                  imp.severity === 'warning' ? 'bg-yellow-100 text-yellow-700'
-                                  : imp.severity === 'convention' ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-gray-100 text-gray-600'
-                                }`}>{imp.severity}</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {activeTab === 'smells' && (
-                    <div className="space-y-4 animate-fade-in">
-                      {analysisResult.codeSmells.length === 0 ? (
-                        <div className="text-center py-12">
-                          <Bug className="w-12 h-12 mx-auto mb-3 text-green-400" />
-                          <p className="text-lg font-semibold text-green-600">Aucun code smell détecté !</p>
-                          <p className="text-sm text-gray-500 mt-1">Votre code est propre 🧹</p>
-                        </div>
-                      ) : analysisResult.codeSmells.map((smell, i) => (
-                        <div key={i} className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-5 sm:p-6">
-                          <div className="flex gap-3 sm:gap-4">
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                              <Bug className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                                <h4 className="font-bold text-gray-900 text-sm sm:text-base">{smell.message}</h4>
-                                {smell.line && (
-                                  <span className="px-2.5 py-1 bg-red-200 text-red-800 rounded-full text-xs font-bold whitespace-nowrap">
-                                    Ligne {smell.line}
-                                  </span>
-                                )}
-                              </div>
-                              {smell.variable && (
-                                <p className="text-xs sm:text-sm text-gray-700 mb-2">
-                                  Règle : <code className="px-2 py-0.5 bg-white rounded text-xs font-mono border border-gray-300">{smell.variable}</code>
-                                </p>
-                              )}
-                              {smell.severity && (
-                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                                  smell.severity === 'error'   ? 'bg-red-100 text-red-700'
-                                  : smell.severity === 'refactor' ? 'bg-orange-100 text-orange-700'
-                                  : 'bg-yellow-100 text-yellow-700'
-                                }`}>{smell.severity}</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {activeTab === 'docs' && (
-                    <div className="animate-fade-in">
-                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-5 sm:p-6">
-                        <div className="flex gap-3 sm:gap-4">
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                            <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-bold text-gray-900 mb-3 text-sm sm:text-base">Documentation</h4>
-                            <div className="flex items-center gap-3 mb-3">
-                              <span className="text-sm text-gray-600">Couverture :</span>
-                              <span className="font-bold text-green-600 text-lg">{analysisResult.documentation?.coverage ?? 0}%</span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                              <div className="bg-gradient-to-r from-green-400 to-emerald-500 h-3 rounded-full transition-all duration-700"
-                                style={{ width: `${analysisResult.documentation?.coverage ?? 0}%` }} />
-                            </div>
-                            <div className="space-y-2">
-                              {(analysisResult.documentation?.missingDocs || []).map((doc, i) => (
-                                <div key={i} className="text-xs sm:text-sm text-gray-600 flex items-start gap-2">
-                                  <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
-                                  <span>{doc.suggestion}{doc.line ? ` (ligne ${doc.line})` : ''}</span>
-                                </div>
-                              ))}
-                              {(analysisResult.documentation?.missingDocs || []).length === 0 && (
-                                <p className="text-sm text-green-600 font-medium">✅ Documentation complète !</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+          {activeTab === 'smells' && (
+            <div className="space-y-4 animate-fade-in">
+              {analysisResult.codeSmells.length === 0 ? (
+                <div className="text-center py-12">
+                  <Bug className="w-12 h-12 mx-auto mb-3 text-green-400" />
+                  <p className="text-lg font-semibold text-green-600">Aucun code smell détecté !</p>
+                  <p className="text-sm text-gray-500 mt-1">Votre code est propre 🧹</p>
                 </div>
+              ) : analysisResult.codeSmells.map((smell, i) => (
+                <div key={i} className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-5 sm:p-6">
+                  <div className="flex gap-3 sm:gap-4">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
+                      <Bug className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                        <h4 className="font-bold text-gray-900 text-sm sm:text-base">{smell.message}</h4>
+                        {smell.line && (
+                          <span className="px-2.5 py-1 bg-red-200 text-red-800 rounded-full text-xs font-bold whitespace-nowrap">
+                            Ligne {smell.line}
+                          </span>
+                        )}
+                      </div>
+                      {smell.variable && (
+                        <p className="text-xs sm:text-sm text-gray-700 mb-2">
+                          Règle : <code className="px-2 py-0.5 bg-white rounded text-xs font-mono border border-gray-300">{smell.variable}</code>
+                        </p>
+                      )}
+                      {smell.severity && (
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                          smell.severity === 'error'    ? 'bg-red-100 text-red-700'
+                          : smell.severity === 'refactor' ? 'bg-orange-100 text-orange-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                        }`}>{smell.severity}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-                {/* Actions */}
-                <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-purple-50 to-pink-50">
-                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                    <button className="flex-1 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl hover:shadow-2xl transition-all font-semibold shadow-lg hover:scale-105">
-                      ✨ Appliquer les corrections
-                    </button>
-                    <button onClick={handleReset}
-                      className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105">
-                      Nouvelle analyse
-                    </button>
+          {activeTab === 'docs' && (
+            <div className="animate-fade-in">
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-5 sm:p-6">
+                <div className="flex gap-3 sm:gap-4">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
+                    <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-bold text-gray-900 mb-3 text-sm sm:text-base">Documentation</h4>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-sm text-gray-600">Couverture :</span>
+                      <span className="font-bold text-green-600 text-lg">{analysisResult.documentation?.coverage ?? 0}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
+                      <div className="bg-gradient-to-r from-green-400 to-emerald-500 h-3 rounded-full transition-all duration-700"
+                        style={{ width: `${analysisResult.documentation?.coverage ?? 0}%` }} />
+                    </div>
+                    <div className="space-y-2">
+                      {(analysisResult.documentation?.missingDocs || []).map((doc, i) => (
+                        <div key={i} className="text-xs sm:text-sm text-gray-600 flex items-start gap-2">
+                          <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
+                          <span>{doc.suggestion}{doc.line ? ` (ligne ${doc.line})` : ''}</span>
+                        </div>
+                      ))}
+                      {(analysisResult.documentation?.missingDocs || []).length === 0 && (
+                        <p className="text-sm text-green-600 font-medium">✅ Documentation complète !</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-purple-50 to-pink-50">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <button className="flex-1 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl hover:shadow-2xl transition-all font-semibold shadow-lg hover:scale-105">
+              ✨ Appliquer les corrections
+            </button>
+            <button onClick={handleReset}
+              className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105">
+              Nouvelle analyse
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
             {/* Badge invité sous la zone de saisie */}
             {!isLoggedIn && guestStatus && !showResults && !isAnalyzing && (
