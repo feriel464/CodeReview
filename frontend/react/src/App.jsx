@@ -10,6 +10,7 @@ import HistoryPage from './pages/User/HistoryPage';
 import SettingsPage from './pages/admin/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
+import SecurityAnalysis from './pages/SecurityAnalysis';
 
 function App() {
   const { isAuthenticated, isAdmin, loading } = useAuth();
@@ -86,7 +87,8 @@ function App() {
           </ProtectedRoute>
         } 
       />
-      
+      <Route path="/security" element={<SecurityAnalysis />} />
+
       {/* Redirection par défaut */}
       <Route 
         path="*" 

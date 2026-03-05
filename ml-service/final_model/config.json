@@ -1,0 +1,48 @@
+{
+  "add_cross_attention": false,
+  "architectures": [
+    "RobertaForSequenceClassification"
+  ],
+  "attention_probs_dropout_prob": 0.1,
+  "bos_token_id": 0,
+  "classifier_dropout": null,
+  "dtype": "float32",
+  "eos_token_id": 2,
+  "gradient_checkpointing": false,
+  "hidden_act": "gelu",
+  "hidden_dropout_prob": 0.1,
+  "hidden_size": 768,
+  "id2label": {
+    "0": "safe",
+    "1": "sql_injection",
+    "2": "xss",
+    "3": "exposed_secret",
+    "4": "command_injection",
+    "5": "path_traversal"
+  },
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "is_decoder": false,
+  "label2id": {
+    "command_injection": 4,
+    "exposed_secret": 3,
+    "path_traversal": 5,
+    "safe": 0,
+    "sql_injection": 1,
+    "xss": 2
+  },
+  "layer_norm_eps": 1e-05,
+  "max_position_embeddings": 1026,
+  "model_type": "roberta",
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "output_past": true,
+  "pad_token_id": 1,
+  "position_embedding_type": "absolute",
+  "problem_type": "single_label_classification",
+  "tie_word_embeddings": true,
+  "transformers_version": "5.0.0",
+  "type_vocab_size": 10,
+  "use_cache": false,
+  "vocab_size": 51416
+}
