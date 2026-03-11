@@ -3,40 +3,139 @@ import {
   Upload, Code, CheckCircle, AlertCircle, FileText, Zap, Shield, TrendingUp,
   ArrowRight, Sparkles, Terminal, FileCode, Bug, BookOpen, Clock, Users,
   Image as ImageIcon, FileUp, Keyboard, Globe, ChevronDown, X, Menu,
-  LogOut, User, LayoutDashboard, Settings
+  LogOut, User, LayoutDashboard, Settings, ShieldAlert, Lock, AlertTriangle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../src/hooks/useAuth';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const SECURITY_API_URL = import.meta.env.VITE_SECURITY_API_URL || 'http://localhost:5001';
 
 const INITIAL_RESULT = {
   qualityScore: 0,
   improvements: [],
   codeSmells: [],
   documentation: { coverage: 0, missingDocs: [] },
-  metrics: {}
+  metrics: {},
+  vulnerabilities: [],
 };
+
+// ─── Mapping sévérité depuis ton backend FastAPI ──────────────────────────────
+const SEVERITY_MAP = {
+  none:     'info',
+  low:      'low',
+  medium:   'medium',
+  high:     'high',
+  critical: 'critical',
+};
+
+// CWE par type de vulnérabilité
+const CWE_MAP = {
+  sql_injection:      'CWE-89',
+  xss:                'CWE-79',
+  exposed_secret:     'CWE-798',
+  command_injection:  'CWE-78',
+  path_traversal:     'CWE-22',
+  safe:               null,
+};
+
+// Titres lisibles
+const TYPE_LABELS = {
+  sql_injection:     'SQL Injection',
+  xss:               'Cross-Site Scripting (XSS)',
+  exposed_secret:    'Secret / Credential exposé',
+  command_injection: 'Command Injection',
+  path_traversal:    'Path Traversal',
+  safe:              'Aucune vulnérabilité',
+};
+
+// Corrections suggérées par type
+const FIX_MAP = {
+  sql_injection:     'Utilisez des requêtes préparées (parameterized queries) avec des placeholders `?` au lieu de concaténer les variables directement dans la requête SQL.',
+  xss:               'Échappez toujours les données utilisateur avant de les insérer dans le DOM. Utilisez `textContent` au lieu de `innerHTML`, ou une bibliothèque de sanitisation.',
+  exposed_secret:    'Ne stockez jamais de secrets dans le code source. Utilisez des variables d\'environnement (.env) ou un gestionnaire de secrets (Vault, AWS Secrets Manager).',
+  command_injection: 'Évitez `shell=True` avec des entrées utilisateur. Utilisez `subprocess.run()` avec une liste d\'arguments, ou validez strictement les entrées.',
+  path_traversal:    'Validez et normalisez les chemins de fichiers. Utilisez `os.path.realpath()` et vérifiez que le chemin est dans le répertoire autorisé.',
+};
+
+// ─── Analyse de vulnérabilité via TON backend FastAPI (localhost:5001) ─────────
+async function analyzeVulnerabilities(code, language) {
+  try {
+    const response = await fetch(`${SECURITY_API_URL}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, language }),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+
+    // Transformer la réponse de ton API vers le format attendu par l'interface
+    if (!data.success) throw new Error('API returned success=false');
+
+    const isVulnerable = data.vulnerable;
+    const vulnType     = data.type;        // ex: "sql_injection"
+    const severity     = SEVERITY_MAP[data.severity] || 'info';
+    const confidence   = data.confidence;  // ex: 63.64
+
+    // Construire le tableau de vulnérabilités pour l'interface
+    const vulnerabilities = isVulnerable ? [{
+      id:          'VULN-001',
+      type:        TYPE_LABELS[vulnType] || vulnType,
+      severity,
+      title:       TYPE_LABELS[vulnType] || vulnType,
+      description: data.message,
+      fix:         FIX_MAP[vulnType] || 'Corrigez la vulnérabilité identifiée.',
+      cwe:         CWE_MAP[vulnType] || null,
+      confidence,
+      // Lignes vulnérables détectées par ton modèle
+      lines:       data.vulnerable_lines || [],
+    }] : [];
+
+    // Score de sécurité : 100 si safe, sinon basé sur la confiance et la sévérité
+    let securityScore = 100;
+    if (isVulnerable) {
+      const severityPenalty = { critical: 60, high: 45, medium: 30, low: 15, info: 5 };
+      const penalty = severityPenalty[severity] || 30;
+      securityScore = Math.max(0, Math.round(100 - penalty - (confidence * 0.3)));
+    }
+
+    return {
+      vulnerabilities,
+      securityScore,
+      summary: isVulnerable
+        ? `${TYPE_LABELS[vulnType]} détectée avec ${confidence}% de confiance`
+        : 'Aucune vulnérabilité détectée par le modèle',
+      rawData: data,
+    };
+
+  } catch (e) {
+    console.error('Vuln analysis error (backend unreachable?):', e);
+    return {
+      vulnerabilities: [],
+      securityScore: null,
+      summary: 'Service de sécurité indisponible (localhost:5001)',
+      error: e.message,
+    };
+  }
+}
 
 export default function CodeReview() {
   const { user: authUser, logout } = useAuth();
   const navigate = useNavigate();
-  // Override local pour forcer le re-render immédiat au logout
   const [localLoggedOut, setLocalLoggedOut] = useState(false);
   const user = localLoggedOut ? null : authUser;
   const resultsRef  = useRef(null);
   const userMenuRef = useRef(null);
 
-  // ── Auth ──────────────────────────────────────────────────
   const isLoggedIn = !!user;
 
-  // Si authUser redevient défini (reconnexion), annuler le logout local
   useEffect(() => {
     if (authUser) setLocalLoggedOut(false);
   }, [authUser]);
 
-  // Fermer le menu utilisateur si clic en dehors
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
@@ -47,7 +146,6 @@ export default function CodeReview() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ── UI ───────────────────────────────────────────────────
   const [scrollY, setScrollY]                       = useState(0);
   const [showMobileMenu, setShowMobileMenu]         = useState(false);
   const [showUserMenu, setShowUserMenu]             = useState(false);
@@ -55,7 +153,6 @@ export default function CodeReview() {
   const [floatingElements, setFloatingElements]     = useState([]);
   const [language, setLanguage]                     = useState('fr');
 
-  // ── Analyse ──────────────────────────────────────────────
   const [inputMethod, setInputMethod]               = useState('code');
   const [programmingLanguage, setProgrammingLanguage] = useState('python');
   const [showProgrammingLangMenu, setShowProgrammingLangMenu] = useState(false);
@@ -65,16 +162,16 @@ export default function CodeReview() {
   const [analysisResult, setAnalysisResult]         = useState(INITIAL_RESULT);
   const [activeTab, setActiveTab]                   = useState('improvements');
 
-  // ── Data ─────────────────────────────────────────────────
+  // Vulnerability state
+  const [isAnalyzingVulns, setIsAnalyzingVulns]     = useState(false);
+  const [vulnResult, setVulnResult]                 = useState(null);
+
   const [programmingLanguages, setProgrammingLanguages] = useState([]);
   const [languages, setLanguages]                   = useState([]);
   const [translations, setTranslations]             = useState({});
   const [loading, setLoading]                       = useState(true);
   const [guestStatus, setGuestStatus]               = useState(null);
 
-  // ─────────────────────────────────────────────────────────
-  //  INIT
-  // ─────────────────────────────────────────────────────────
   useEffect(() => {
     loadAll();
     const onScroll = () => setScrollY(window.scrollY);
@@ -149,12 +246,9 @@ export default function CodeReview() {
     try {
       const r = await axios.get(`${API_URL}/analyze/guest-status`);
       if (r.data.success) setGuestStatus(r.data);
-    } catch { /* silencieux */ }
+    } catch { }
   }
 
-  // ─────────────────────────────────────────────────────────
-  //  ANALYSE
-  // ─────────────────────────────────────────────────────────
   const handleAnalyze = async () => {
     if (!isLoggedIn && (inputMethod === 'upload' || inputMethod === 'image')) {
       alert('⚠️ Connectez-vous pour télécharger des fichiers.');
@@ -169,15 +263,20 @@ export default function CodeReview() {
     try {
       setIsAnalyzing(true);
       setShowResults(false);
+      setVulnResult(null);
 
       const token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const response = await axios.post(
-        `${API_URL}/analyze`,
-        { code: codeInput, language: programmingLanguage, fileName: `code.${programmingLanguage}` },
-        { headers }
-      );
+      // Lancer les deux analyses en parallèle
+      const [response, vulnData] = await Promise.all([
+        axios.post(
+          `${API_URL}/analyze`,
+          { code: codeInput, language: programmingLanguage, fileName: `code.${programmingLanguage}` },
+          { headers }
+        ),
+        analyzeVulnerabilities(codeInput, programmingLanguage),
+      ]);
 
       if (response.data.success) {
         const data = response.data.data;
@@ -191,6 +290,7 @@ export default function CodeReview() {
           },
           metrics: data.metrics || {},
         });
+        setVulnResult(vulnData);
 
         if (!isLoggedIn && response.data.remainingAnalyses !== undefined) {
           setGuestStatus(prev => ({
@@ -227,31 +327,26 @@ export default function CodeReview() {
   const handleReset = () => {
     setShowResults(false);
     setAnalysisResult(INITIAL_RESULT);
+    setVulnResult(null);
     setCodeInput('');
     setActiveTab('improvements');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleLogout = () => {
-    // 1. Fermer les menus immédiatement
     setShowUserMenu(false);
     setShowMobileMenu(false);
-    // 2. Forcer le re-render AVANT que useAuth se mette à jour
     setLocalLoggedOut(true);
-    // 3. Nettoyer le token et appeler le hook
     localStorage.removeItem('token');
     logout?.();
-    // 4. Réinitialiser l'état analyse
     setShowResults(false);
     setAnalysisResult(INITIAL_RESULT);
+    setVulnResult(null);
     setCodeInput('');
-    // 5. Recharger le statut invité
     checkGuestStatus();
   };
 
-  // ─────────────────────────────────────────────────────────
-  //  HELPERS
-  // ─────────────────────────────────────────────────────────
+  // ─── Helpers ─────────────────────────────────────────────
   const getScoreColor = (s) =>
     s >= 80 ? 'from-green-500 to-emerald-500'
     : s >= 60 ? 'from-yellow-500 to-orange-500'
@@ -262,12 +357,28 @@ export default function CodeReview() {
     : s >= 60 ? 'from-yellow-50 via-orange-50 to-amber-50 border-orange-200'
     : 'from-red-50 via-rose-50 to-pink-50 border-red-200';
 
+  const getSeverityConfig = (severity) => {
+    switch (severity) {
+      case 'critical': return { color: 'bg-red-100 text-red-800 border-red-300', dot: 'bg-red-500', badge: 'from-red-500 to-rose-600', emoji: '🔴', label: 'Critique' };
+      case 'high':     return { color: 'bg-orange-100 text-orange-800 border-orange-300', dot: 'bg-orange-500', badge: 'from-orange-500 to-red-500', emoji: '🟠', label: 'Élevé' };
+      case 'medium':   return { color: 'bg-yellow-100 text-yellow-800 border-yellow-300', dot: 'bg-yellow-500', badge: 'from-yellow-500 to-orange-400', emoji: '🟡', label: 'Moyen' };
+      case 'low':      return { color: 'bg-blue-100 text-blue-800 border-blue-300', dot: 'bg-blue-400', badge: 'from-blue-400 to-cyan-500', emoji: '🔵', label: 'Faible' };
+      default:         return { color: 'bg-gray-100 text-gray-700 border-gray-300', dot: 'bg-gray-400', badge: 'from-gray-400 to-gray-500', emoji: '⚪', label: 'Info' };
+    }
+  };
+
+  const getSecurityScoreColor = (score) =>
+    score === null ? 'from-gray-400 to-gray-500'
+    : score >= 80 ? 'from-green-500 to-emerald-500'
+    : score >= 50 ? 'from-yellow-500 to-orange-400'
+    : 'from-red-500 to-rose-600';
+
+  const vulnCount = vulnResult?.vulnerabilities?.length || 0;
+  const criticalCount = vulnResult?.vulnerabilities?.filter(v => v.severity === 'critical' || v.severity === 'high').length || 0;
+
   const t = translations[language] || defaultTranslations[language] || defaultTranslations.fr;
   const currentLang = programmingLanguages.find(l => l.code === programmingLanguage);
 
-  // ─────────────────────────────────────────────────────────
-  //  LOADING
-  // ─────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
@@ -279,9 +390,6 @@ export default function CodeReview() {
     );
   }
 
-  // ─────────────────────────────────────────────────────────
-  //  RENDER
-  // ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 relative overflow-hidden">
 
@@ -304,8 +412,6 @@ export default function CodeReview() {
         scrollY > 50 ? 'bg-white/85 backdrop-blur-xl shadow-lg border-b border-gray-200/60' : 'bg-white/50 backdrop-blur-sm'
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
-
-          {/* Logo */}
           <div className="flex items-center gap-2 sm:gap-3 animate-slide-in-left">
             <div className="relative group">
               <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
@@ -318,7 +424,6 @@ export default function CodeReview() {
             </span>
           </div>
 
-          {/* Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-6">
             <a href="#features" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
               {t.features}
@@ -329,12 +434,9 @@ export default function CodeReview() {
               <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
             </a>
 
-            {/* Sélecteur de langue */}
             <div className="relative">
-              <button
-                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-                className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-gray-200"
-              >
+              <button onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-gray-200">
                 <Globe className="w-4 h-4 text-gray-600" />
                 <span className="text-sm font-medium">{languages.find(l => l.code === language)?.flag}</span>
                 <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${showLanguageMenu ? 'rotate-180' : ''}`} />
@@ -352,23 +454,18 @@ export default function CodeReview() {
               )}
             </div>
 
-            {/* ── CONNECTÉ : UserMenu ── */}
             {isLoggedIn ? (
               <div className="relative" ref={userMenuRef}>
-                <button
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-2.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all font-medium"
-                >
+                <button onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all font-medium">
                   <div className="w-6 h-6 bg-white/25 rounded-full flex items-center justify-center text-xs font-bold">
                     {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
                   </div>
                   <span className="text-sm max-w-[120px] truncate">{user?.name || user?.email}</span>
                   <ChevronDown className={`w-4 h-4 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
                 </button>
-
                 {showUserMenu && (
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 animate-fade-in overflow-hidden">
-                    {/* Infos user */}
                     <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50">
                       <p className="text-sm font-bold text-gray-900 truncate">{user?.name || 'Utilisateur'}</p>
                       <p className="text-xs text-gray-500 truncate">{user?.email}</p>
@@ -398,7 +495,6 @@ export default function CodeReview() {
                 )}
               </div>
             ) : (
-              /* ── NON CONNECTÉ : bouton Commencer ── */
               <button onClick={() => navigate('/login')}
                 className="px-5 py-2 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all font-medium">
                 {t.start}
@@ -406,13 +502,11 @@ export default function CodeReview() {
             )}
           </nav>
 
-          {/* Mobile burger */}
           <button onClick={() => setShowMobileMenu(!showMobileMenu)} className="lg:hidden p-2 text-gray-700">
             {showMobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
 
-        {/* Mobile menu */}
         {showMobileMenu && (
           <div className="lg:hidden bg-white border-t border-gray-200 animate-fade-in">
             <div className="px-4 py-4 space-y-3">
@@ -459,7 +553,6 @@ export default function CodeReview() {
       <section className="pt-24 sm:pt-28 md:pt-32 pb-12 sm:pb-16 px-4 sm:px-6 relative">
         <div className="max-w-7xl mx-auto relative z-10">
 
-          {/* Hero text */}
           <div className="text-center max-w-4xl mx-auto mb-10 sm:mb-14">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-100 to-pink-100 rounded-full mb-4 sm:mb-6 animate-bounce-slow border border-purple-200">
               <Sparkles className="w-4 h-4 text-purple-600 animate-spin-slow" />
@@ -476,8 +569,6 @@ export default function CodeReview() {
             <p className="text-sm sm:text-base md:text-lg text-gray-600 mb-6 sm:mb-10 leading-relaxed animate-fade-in px-4">
               {t.heroDesc}
             </p>
-
-            {/* Badge statut connecté */}
             {isLoggedIn && (
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-full mb-4 animate-fade-in">
                 <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -488,7 +579,6 @@ export default function CodeReview() {
             )}
           </div>
 
-          {/* Sélecteur méthode */}
           <div className="max-w-5xl mx-auto">
             <div className="flex flex-wrap justify-center gap-2 sm:gap-4 mb-6 sm:mb-8">
               {[
@@ -513,7 +603,6 @@ export default function CodeReview() {
               <div className="animate-fade-in">
                 {inputMethod === 'code' && (
                   <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-pink-300 p-4 sm:p-8 shadow-xl">
-                    {/* Sélecteur langage */}
                     <div className="mb-4">
                       <label className="block text-sm font-semibold text-gray-700 mb-2">{t.selectLanguage}</label>
                       <div className="relative">
@@ -544,7 +633,6 @@ export default function CodeReview() {
                       className="w-full h-64 sm:h-96 p-4 sm:p-6 bg-gray-50 rounded-xl border border-gray-300 focus:border-pink-500 focus:ring-4 focus:ring-pink-100 outline-none font-mono text-xs sm:text-sm resize-none transition-all" />
 
                     <div className="flex justify-between items-center mt-4">
-                      {/* Badge invité */}
                       {!isLoggedIn && guestStatus && (
                         <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
                           <span className="font-semibold">{guestStatus.remaining}</span>
@@ -617,7 +705,11 @@ export default function CodeReview() {
                   </div>
                 </div>
                 <h3 className="text-2xl font-semibold text-gray-900 mb-2">{t.analyzing}</h3>
-                <p className="text-base text-gray-600 mb-8">Notre IA examine votre code en profondeur</p>
+                <p className="text-base text-gray-600 mb-2">Notre IA examine votre code en profondeur</p>
+                <p className="text-sm text-gray-500 mb-8 flex items-center justify-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-red-400" />
+                  Scan de vulnérabilités de sécurité en cours…
+                </p>
                 <div className="flex items-center justify-center gap-2">
                   {[0,1,2,3,4].map(i => (
                     <div key={i} className="w-3 h-3 rounded-full animate-bounce"
@@ -628,328 +720,459 @@ export default function CodeReview() {
               </div>
             )}
 
-        {/* ── RÉSULTATS ── */}
-{showResults && (
-  <div ref={resultsRef} className="animate-scale-in">
+            {/* ── RÉSULTATS ── */}
+            {showResults && (
+              <div ref={resultsRef} className="animate-scale-in">
 
-    {/* ══════════════════════════════════════════════════════
-        CAS SPÉCIAL : Score = 0 → Code invalide / pas du code
-        ══════════════════════════════════════════════════════ */}
-    {analysisResult.qualityScore === 0 ? (
-      <div className="bg-white/90 backdrop-blur-md rounded-3xl border-2 border-red-200 shadow-2xl overflow-hidden">
-
-        {/* Header rouge */}
-        <div className="bg-gradient-to-r from-red-50 via-rose-50 to-pink-50 border-b-2 border-red-200 p-8 sm:p-10 text-center">
-          {/* Emoji animé */}
-          <div className="text-7xl sm:text-8xl mb-4 animate-bounce-slow select-none">🤔</div>
-
-          <h3 className="text-2xl sm:text-3xl font-bold text-red-700 mb-3">
-            Oups… ce n'est pas vraiment du code !
-          </h3>
-          <p className="text-base sm:text-lg text-red-500 font-medium mb-2">
-            Score : <span className="font-bold text-red-700">0 / 100</span>
-          </p>
-          <p className="text-sm sm:text-base text-gray-600 max-w-xl mx-auto leading-relaxed">
-            Ce que vous avez soumis contient des erreurs syntaxiques trop graves pour être analysé.
-            Il ne s'agit pas d'un code valide et exécutable.
-          </p>
-        </div>
-
-        {/* Corps — erreurs détectées */}
-        <div className="p-6 sm:p-8">
-
-          {/* Bannière explicative */}
-          <div className="flex items-start gap-4 bg-red-50 border-2 border-red-200 rounded-2xl p-5 mb-6">
-            <span className="text-3xl flex-shrink-0">🚨</span>
-            <div>
-              <h4 className="font-bold text-red-700 mb-1 text-base sm:text-lg">
-                Erreurs critiques détectées ({analysisResult.codeSmells.length})
-              </h4>
-              <p className="text-sm text-red-600">
-                Les problèmes suivants empêchent totalement l'exécution de ce code.
-                Corrigez-les avant de réessayer.
-              </p>
-            </div>
-          </div>
-
-          {/* Liste des erreurs syntaxiques */}
-          <div className="space-y-3">
-            {analysisResult.improvements.length > 0
-              ? analysisResult.improvements.map((imp, i) => (
-                <div key={i} className="flex items-start gap-4 bg-white border-2 border-red-100 rounded-xl p-4 hover:border-red-300 hover:shadow-md transition-all">
-                  <div className="w-9 h-9 bg-gradient-to-br from-red-400 to-rose-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow">
-                    <span className="text-white text-sm font-bold">{i + 1}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
-                      <p className="font-semibold text-gray-900 text-sm sm:text-base">{imp.message}</p>
-                      {imp.line && (
-                        <span className="px-2.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold whitespace-nowrap border border-red-200">
-                          Ligne {imp.line}
-                        </span>
-                      )}
-                    </div>
-                    {imp.suggestion && (
-                      <p className="text-xs sm:text-sm text-green-700 bg-green-50 rounded-lg px-3 py-1.5 mt-1 border border-green-200">
-                        💡 {imp.suggestion}
+                {/* CAS SPÉCIAL : Score = 0 */}
+                {analysisResult.qualityScore === 0 ? (
+                  <div className="bg-white/90 backdrop-blur-md rounded-3xl border-2 border-red-200 shadow-2xl overflow-hidden">
+                    <div className="bg-gradient-to-r from-red-50 via-rose-50 to-pink-50 border-b-2 border-red-200 p-8 sm:p-10 text-center">
+                      <div className="text-7xl sm:text-8xl mb-4 animate-bounce-slow select-none">🤔</div>
+                      <h3 className="text-2xl sm:text-3xl font-bold text-red-700 mb-3">Oups… ce n'est pas vraiment du code !</h3>
+                      <p className="text-base sm:text-lg text-red-500 font-medium mb-2">Score : <span className="font-bold text-red-700">0 / 100</span></p>
+                      <p className="text-sm sm:text-base text-gray-600 max-w-xl mx-auto leading-relaxed">
+                        Ce que vous avez soumis contient des erreurs syntaxiques trop graves pour être analysé.
                       </p>
-                    )}
-                  </div>
-                </div>
-              ))
-              : analysisResult.codeSmells.map((smell, i) => (
-                <div key={i} className="flex items-start gap-4 bg-white border-2 border-red-100 rounded-xl p-4 hover:border-red-300 hover:shadow-md transition-all">
-                  <div className="w-9 h-9 bg-gradient-to-br from-red-400 to-rose-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow">
-                    <span className="text-white text-sm font-bold">{i + 1}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="font-semibold text-gray-900 text-sm sm:text-base">{smell.message}</p>
-                      {smell.line && (
-                        <span className="px-2.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold whitespace-nowrap border border-red-200">
-                          Ligne {smell.line}
-                        </span>
-                      )}
                     </div>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-
-          {/* Conseil */}
-          <div className="mt-6 bg-blue-50 border-2 border-blue-200 rounded-2xl p-5 flex items-start gap-3">
-            <span className="text-2xl flex-shrink-0">💡</span>
-            <div>
-              <p className="font-bold text-blue-700 mb-1">Comment corriger ?</p>
-              <ul className="text-sm text-blue-600 space-y-1 list-disc list-inside">
-                <li>N'utilisez pas de mots-clés Python comme noms de variables (<code className="bg-blue-100 px-1 rounded">if</code>, <code className="bg-blue-100 px-1 rounded">class</code>, <code className="bg-blue-100 px-1 rounded">lambda</code>…)</li>
-                <li>Ajoutez les parenthèses manquantes : <code className="bg-blue-100 px-1 rounded">print("hello")</code></li>
-                <li>Terminez les conditions par <code className="bg-blue-100 px-1 rounded">:</code> → <code className="bg-blue-100 px-1 rounded">while True:</code></li>
-                <li>Syntaxe d'import correcte : <code className="bg-blue-100 px-1 rounded">from math import sqrt</code></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-red-50 to-pink-50">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <button onClick={handleReset}
-              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105">
-              <span>🔄</span>
-              Réessayer avec du vrai code
-            </button>
-            <button
-              onClick={() => setCodeInput(`def hello_world():\n    """Exemple de code Python valide."""\n    message = "Hello, World!"\n    print(message)\n    return message\n\nhello_world()`)}
-              className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-blue-300 text-blue-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-semibold hover:scale-105 flex items-center gap-2">
-              <span>📋</span>
-              Voir un exemple valide
-            </button>
-          </div>
-        </div>
-      </div>
-
-    ) : (
-      /* ══════════════════════════════════════════════════════
-          CAS NORMAL : Score > 0 → Affichage standard
-          ══════════════════════════════════════════════════════ */
-      <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-purple-200 shadow-2xl overflow-hidden">
-
-        {/* Header résultats */}
-        <div className={`bg-gradient-to-r ${getScoreBg(analysisResult.qualityScore)} border-b p-6 sm:p-8`}>
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg">
-                <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-              </div>
-              <div>
-                <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{t.analysisComplete}</h3>
-                <p className="text-sm sm:text-base text-gray-600">
-                  Langage : <span className="font-semibold text-purple-600">{currentLang?.name || programmingLanguage}</span>
-                  {isLoggedIn && (
-                    <span className="ml-3 text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full font-medium">
-                      ✓ Analyse complète
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-            {/* Score */}
-            <div className="text-center">
-              <div className={`text-5xl sm:text-6xl font-bold bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} text-transparent bg-clip-text mb-1 animate-number-count`}>
-                {analysisResult.qualityScore}
-                <span className="text-3xl text-gray-400">/100</span>
-              </div>
-              <p className="text-sm text-gray-600 font-medium">{t.qualityScore}</p>
-              <div className="w-32 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
-                <div className={`h-2 rounded-full bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} transition-all duration-1000`}
-                  style={{ width: `${analysisResult.qualityScore}%` }} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="border-b border-gray-200 px-6 sm:px-8 bg-white/50 overflow-x-auto">
-          <div className="flex gap-6 sm:gap-8 min-w-max">
-            {[
-              { id: 'improvements', label: t.improvements, icon: Sparkles, count: analysisResult.improvements.length },
-              { id: 'smells',       label: t.smells,       icon: Bug,      count: analysisResult.codeSmells.length },
-              { id: 'docs',         label: t.documentation, icon: BookOpen, count: null },
-            ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-4 border-b-2 transition-all text-sm sm:text-base font-semibold whitespace-nowrap ${
-                  activeTab === tab.id ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-600 hover:text-gray-900'
-                }`}>
-                <tab.icon className="w-4 h-4 sm:w-5 sm:h-5" />
-                {tab.label}
-                {tab.count !== null && tab.count > 0 && (
-                  <span className="ml-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Contenu tabs */}
-        <div className="p-6 sm:p-8">
-          {activeTab === 'improvements' && (
-            <div className="space-y-4 animate-fade-in">
-              {analysisResult.improvements.length === 0 ? (
-                <div className="text-center py-12">
-                  <Sparkles className="w-12 h-12 mx-auto mb-3 text-green-400" />
-                  <p className="text-lg font-semibold text-green-600">Aucune amélioration nécessaire !</p>
-                  <p className="text-sm text-gray-500 mt-1">Votre code est déjà bien écrit 🎉</p>
-                </div>
-              ) : analysisResult.improvements.map((imp, i) => (
-                <div key={i} className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl p-5 sm:p-6 hover:shadow-lg transition-all hover:scale-[1.01]">
-                  <div className="flex gap-3 sm:gap-4">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
-                      <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                        <h4 className="font-bold text-gray-900 text-sm sm:text-base">{imp.message}</h4>
-                        {imp.line && (
-                          <span className="px-2.5 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">
-                            Ligne {imp.line}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs sm:text-sm text-gray-700">{imp.suggestion}</p>
-                      {imp.severity && (
-                        <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${
-                          imp.severity === 'error'      ? 'bg-red-100 text-red-700'
-                          : imp.severity === 'warning'  ? 'bg-yellow-100 text-yellow-700'
-                          : imp.severity === 'convention' ? 'bg-blue-100 text-blue-700'
-                          : 'bg-gray-100 text-gray-600'
-                        }`}>{imp.severity}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'smells' && (
-            <div className="space-y-4 animate-fade-in">
-              {analysisResult.codeSmells.length === 0 ? (
-                <div className="text-center py-12">
-                  <Bug className="w-12 h-12 mx-auto mb-3 text-green-400" />
-                  <p className="text-lg font-semibold text-green-600">Aucun code smell détecté !</p>
-                  <p className="text-sm text-gray-500 mt-1">Votre code est propre 🧹</p>
-                </div>
-              ) : analysisResult.codeSmells.map((smell, i) => (
-                <div key={i} className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-5 sm:p-6">
-                  <div className="flex gap-3 sm:gap-4">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                      <Bug className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                        <h4 className="font-bold text-gray-900 text-sm sm:text-base">{smell.message}</h4>
-                        {smell.line && (
-                          <span className="px-2.5 py-1 bg-red-200 text-red-800 rounded-full text-xs font-bold whitespace-nowrap">
-                            Ligne {smell.line}
-                          </span>
-                        )}
-                      </div>
-                      {smell.variable && (
-                        <p className="text-xs sm:text-sm text-gray-700 mb-2">
-                          Règle : <code className="px-2 py-0.5 bg-white rounded text-xs font-mono border border-gray-300">{smell.variable}</code>
-                        </p>
-                      )}
-                      {smell.severity && (
-                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                          smell.severity === 'error'    ? 'bg-red-100 text-red-700'
-                          : smell.severity === 'refactor' ? 'bg-orange-100 text-orange-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                        }`}>{smell.severity}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'docs' && (
-            <div className="animate-fade-in">
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-5 sm:p-6">
-                <div className="flex gap-3 sm:gap-4">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                    <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-gray-900 mb-3 text-sm sm:text-base">Documentation</h4>
-                    <div className="flex items-center gap-3 mb-3">
-                      <span className="text-sm text-gray-600">Couverture :</span>
-                      <span className="font-bold text-green-600 text-lg">{analysisResult.documentation?.coverage ?? 0}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                      <div className="bg-gradient-to-r from-green-400 to-emerald-500 h-3 rounded-full transition-all duration-700"
-                        style={{ width: `${analysisResult.documentation?.coverage ?? 0}%` }} />
-                    </div>
-                    <div className="space-y-2">
-                      {(analysisResult.documentation?.missingDocs || []).map((doc, i) => (
-                        <div key={i} className="text-xs sm:text-sm text-gray-600 flex items-start gap-2">
-                          <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
-                          <span>{doc.suggestion}{doc.line ? ` (ligne ${doc.line})` : ''}</span>
+                    <div className="p-6 sm:p-8">
+                      <div className="flex items-start gap-4 bg-red-50 border-2 border-red-200 rounded-2xl p-5 mb-6">
+                        <span className="text-3xl flex-shrink-0">🚨</span>
+                        <div>
+                          <h4 className="font-bold text-red-700 mb-1 text-base sm:text-lg">Erreurs critiques détectées ({analysisResult.codeSmells.length})</h4>
+                          <p className="text-sm text-red-600">Les problèmes suivants empêchent totalement l'exécution de ce code.</p>
                         </div>
-                      ))}
-                      {(analysisResult.documentation?.missingDocs || []).length === 0 && (
-                        <p className="text-sm text-green-600 font-medium">✅ Documentation complète !</p>
-                      )}
+                      </div>
+                      <div className="space-y-3">
+                        {(analysisResult.improvements.length > 0 ? analysisResult.improvements : analysisResult.codeSmells).map((item, i) => (
+                          <div key={i} className="flex items-start gap-4 bg-white border-2 border-red-100 rounded-xl p-4 hover:border-red-300 hover:shadow-md transition-all">
+                            <div className="w-9 h-9 bg-gradient-to-br from-red-400 to-rose-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow">
+                              <span className="text-white text-sm font-bold">{i + 1}</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
+                                <p className="font-semibold text-gray-900 text-sm sm:text-base">{item.message}</p>
+                                {item.line && <span className="px-2.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold whitespace-nowrap border border-red-200">Ligne {item.line}</span>}
+                              </div>
+                              {item.suggestion && (
+                                <p className="text-xs sm:text-sm text-green-700 bg-green-50 rounded-lg px-3 py-1.5 mt-1 border border-green-200">💡 {item.suggestion}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-red-50 to-pink-50">
+                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                        <button onClick={handleReset}
+                          className="flex-1 flex items-center justify-center gap-2 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105">
+                          <span>🔄</span> Réessayer avec du vrai code
+                        </button>
+                        <button onClick={() => setCodeInput(`def hello_world():\n    """Exemple de code Python valide."""\n    message = "Hello, World!"\n    print(message)\n    return message\n\nhello_world()`)}
+                          className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-blue-300 text-blue-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-semibold hover:scale-105 flex items-center gap-2">
+                          <span>📋</span> Voir un exemple valide
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+
+                ) : (
+                  /* CAS NORMAL : Score > 0 */
+                  <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-purple-200 shadow-2xl overflow-hidden">
+
+                    {/* Header résultats */}
+                    <div className={`bg-gradient-to-r ${getScoreBg(analysisResult.qualityScore)} border-b p-6 sm:p-8`}>
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg">
+                            <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{t.analysisComplete}</h3>
+                            <p className="text-sm sm:text-base text-gray-600">
+                              Langage : <span className="font-semibold text-purple-600">{currentLang?.name || programmingLanguage}</span>
+                              {isLoggedIn && (
+                                <span className="ml-3 text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full font-medium">✓ Analyse complète</span>
+                              )}
+                            </p>
+                            {/* Security mini-badge in header */}
+                            {vulnResult && (
+                              <div className="mt-2 flex items-center gap-2">
+                                {vulnCount === 0 ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold border border-green-200">
+                                    <Lock className="w-3 h-3" /> Aucune vulnérabilité
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold border border-red-200">
+                                    <ShieldAlert className="w-3 h-3" /> {vulnCount} vulnérabilité{vulnCount > 1 ? 's' : ''} détectée{vulnCount > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {/* Score qualité */}
+                        <div className="text-center">
+                          <div className={`text-5xl sm:text-6xl font-bold bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} text-transparent bg-clip-text mb-1 animate-number-count`}>
+                            {analysisResult.qualityScore}
+                            <span className="text-3xl text-gray-400">/100</span>
+                          </div>
+                          <p className="text-sm text-gray-600 font-medium">{t.qualityScore}</p>
+                          <div className="w-32 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
+                            <div className={`h-2 rounded-full bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} transition-all duration-1000`}
+                              style={{ width: `${analysisResult.qualityScore}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Tabs — maintenant avec Vulnérabilités */}
+                    <div className="border-b border-gray-200 px-6 sm:px-8 bg-white/50 overflow-x-auto">
+                      <div className="flex gap-4 sm:gap-6 min-w-max">
+                        {[
+                          { id: 'improvements', label: t.improvements,   icon: Sparkles,    count: analysisResult.improvements.length },
+                          { id: 'smells',       label: t.smells,         icon: Bug,         count: analysisResult.codeSmells.length },
+                          { id: 'docs',         label: t.documentation,  icon: BookOpen,    count: null },
+                          { id: 'security',     label: 'Vulnérabilités', icon: ShieldAlert, count: vulnCount, alert: criticalCount > 0 },
+                        ].map(tab => (
+                          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 py-4 border-b-2 transition-all text-sm sm:text-base font-semibold whitespace-nowrap ${
+                              activeTab === tab.id
+                                ? tab.id === 'security' ? 'border-red-500 text-red-600' : 'border-purple-600 text-purple-600'
+                                : 'border-transparent text-gray-600 hover:text-gray-900'
+                            }`}>
+                            <tab.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${tab.alert ? 'text-red-500 animate-pulse' : ''}`} />
+                            {tab.label}
+                            {tab.count !== null && tab.count > 0 && (
+                              <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+                                tab.id === 'security'
+                                  ? tab.alert ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                                  : 'bg-purple-100 text-purple-700'
+                              }`}>
+                                {tab.count}
+                              </span>
+                            )}
+                            {tab.id === 'security' && tab.count === 0 && vulnResult && (
+                              <span className="ml-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">✓</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Contenu tabs */}
+                    <div className="p-6 sm:p-8">
+
+                      {/* Tab Améliorations */}
+                      {activeTab === 'improvements' && (
+                        <div className="space-y-4 animate-fade-in">
+                          {analysisResult.improvements.length === 0 ? (
+                            <div className="text-center py-12">
+                              <Sparkles className="w-12 h-12 mx-auto mb-3 text-green-400" />
+                              <p className="text-lg font-semibold text-green-600">Aucune amélioration nécessaire !</p>
+                              <p className="text-sm text-gray-500 mt-1">Votre code est déjà bien écrit 🎉</p>
+                            </div>
+                          ) : analysisResult.improvements.map((imp, i) => (
+                            <div key={i} className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl p-5 sm:p-6 hover:shadow-lg transition-all hover:scale-[1.01]">
+                              <div className="flex gap-3 sm:gap-4">
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
+                                  <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                                    <h4 className="font-bold text-gray-900 text-sm sm:text-base">{imp.message}</h4>
+                                    {imp.line && <span className="px-2.5 py-1 bg-amber-200 text-amber-800 rounded-full text-xs font-bold whitespace-nowrap">Ligne {imp.line}</span>}
+                                  </div>
+                                  <p className="text-xs sm:text-sm text-gray-700">{imp.suggestion}</p>
+                                  {imp.severity && (
+                                    <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${
+                                      imp.severity === 'error' ? 'bg-red-100 text-red-700'
+                                      : imp.severity === 'warning' ? 'bg-yellow-100 text-yellow-700'
+                                      : imp.severity === 'convention' ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-gray-100 text-gray-600'
+                                    }`}>{imp.severity}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Tab Code Smells */}
+                      {activeTab === 'smells' && (
+                        <div className="space-y-4 animate-fade-in">
+                          {analysisResult.codeSmells.length === 0 ? (
+                            <div className="text-center py-12">
+                              <Bug className="w-12 h-12 mx-auto mb-3 text-green-400" />
+                              <p className="text-lg font-semibold text-green-600">Aucun code smell détecté !</p>
+                              <p className="text-sm text-gray-500 mt-1">Votre code est propre 🧹</p>
+                            </div>
+                          ) : analysisResult.codeSmells.map((smell, i) => (
+                            <div key={i} className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-5 sm:p-6">
+                              <div className="flex gap-3 sm:gap-4">
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-red-400 to-rose-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
+                                  <Bug className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                                    <h4 className="font-bold text-gray-900 text-sm sm:text-base">{smell.message}</h4>
+                                    {smell.line && <span className="px-2.5 py-1 bg-red-200 text-red-800 rounded-full text-xs font-bold whitespace-nowrap">Ligne {smell.line}</span>}
+                                  </div>
+                                  {smell.variable && (
+                                    <p className="text-xs sm:text-sm text-gray-700 mb-2">
+                                      Règle : <code className="px-2 py-0.5 bg-white rounded text-xs font-mono border border-gray-300">{smell.variable}</code>
+                                    </p>
+                                  )}
+                                  {smell.severity && (
+                                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                                      smell.severity === 'error' ? 'bg-red-100 text-red-700'
+                                      : smell.severity === 'refactor' ? 'bg-orange-100 text-orange-700'
+                                      : 'bg-yellow-100 text-yellow-700'
+                                    }`}>{smell.severity}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Tab Documentation */}
+                      {activeTab === 'docs' && (
+                        <div className="animate-fade-in">
+                          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-5 sm:p-6">
+                            <div className="flex gap-3 sm:gap-4">
+                              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
+                                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="font-bold text-gray-900 mb-3 text-sm sm:text-base">Documentation</h4>
+                                <div className="flex items-center gap-3 mb-3">
+                                  <span className="text-sm text-gray-600">Couverture :</span>
+                                  <span className="font-bold text-green-600 text-lg">{analysisResult.documentation?.coverage ?? 0}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
+                                  <div className="bg-gradient-to-r from-green-400 to-emerald-500 h-3 rounded-full transition-all duration-700"
+                                    style={{ width: `${analysisResult.documentation?.coverage ?? 0}%` }} />
+                                </div>
+                                <div className="space-y-2">
+                                  {(analysisResult.documentation?.missingDocs || []).map((doc, i) => (
+                                    <div key={i} className="text-xs sm:text-sm text-gray-600 flex items-start gap-2">
+                                      <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
+                                      <span>{doc.suggestion}{doc.line ? ` (ligne ${doc.line})` : ''}</span>
+                                    </div>
+                                  ))}
+                                  {(analysisResult.documentation?.missingDocs || []).length === 0 && (
+                                    <p className="text-sm text-green-600 font-medium">✅ Documentation complète !</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ══════════════════════════════════════════════
+                          Tab VULNÉRABILITÉS — Ton modèle RoBERTa (localhost:5001)
+                          ══════════════════════════════════════════════ */}
+                      {activeTab === 'security' && (
+                        <div className="animate-fade-in">
+
+                          {/* Pas encore de résultat */}
+                          {!vulnResult && (
+                            <div className="text-center py-16">
+                              <div className="w-16 h-16 border-4 border-red-200 border-t-red-500 rounded-full animate-spin mx-auto mb-4" />
+                              <p className="text-gray-600 font-medium">Analyse de sécurité en cours…</p>
+                            </div>
+                          )}
+
+                          {vulnResult && (
+                            <>
+                              {/* Score de sécurité + résumé */}
+                              <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                                {/* Score */}
+                                <div className="flex-1 bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 text-white flex items-center gap-4 shadow-xl">
+                                  <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${getSecurityScoreColor(vulnResult.securityScore)} flex items-center justify-center flex-shrink-0 shadow-lg`}>
+                                    <Lock className="w-7 h-7 text-white" />
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">Score de sécurité</p>
+                                    <p className={`text-4xl font-bold bg-gradient-to-r ${getSecurityScoreColor(vulnResult.securityScore)} text-transparent bg-clip-text`}>
+                                      {vulnResult.securityScore !== null ? `${vulnResult.securityScore}/100` : 'N/A'}
+                                    </p>
+                                    <p className="text-xs text-slate-400 mt-1">{vulnResult.summary || 'Modèle RoBERTa local'}</p>
+                                  </div>
+                                </div>
+
+                                {/* Compteurs par sévérité */}
+                                <div className="grid grid-cols-2 gap-3 sm:w-64">
+                                  {['critical','high','medium','low'].map(sev => {
+                                    const cfg = getSeverityConfig(sev);
+                                    const count = vulnResult.vulnerabilities?.filter(v => v.severity === sev).length || 0;
+                                    return (
+                                      <div key={sev} className={`rounded-xl p-3 border-2 ${cfg.color} flex items-center gap-2`}>
+                                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                                        <div>
+                                          <p className="text-xs font-semibold">{cfg.label}</p>
+                                          <p className="text-lg font-bold">{count}</p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Liste des vulnérabilités */}
+                              {vulnCount === 0 ? (
+                                <div className="text-center py-12 bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl border-2 border-green-200">
+                                  <div className="text-6xl mb-4">🛡️</div>
+                                  <p className="text-xl font-bold text-green-700 mb-2">Aucune vulnérabilité détectée !</p>
+                                  <p className="text-sm text-green-600">Votre code semble sécurisé selon le modèle RoBERTa.</p>
+                                </div>
+                              ) : (
+                                <div className="space-y-4">
+                                  {vulnResult.vulnerabilities.map((vuln, i) => {
+                                    const cfg = getSeverityConfig(vuln.severity);
+                                    return (
+                                      <div key={i} className={`border-2 ${cfg.color} rounded-2xl overflow-hidden hover:shadow-lg transition-all`}>
+                                        {/* Header vuln */}
+                                        <div className={`bg-gradient-to-r ${cfg.badge} p-4 flex items-start justify-between gap-3`}>
+                                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                                            <span className="text-2xl flex-shrink-0">{cfg.emoji}</span>
+                                            <div className="min-w-0">
+                                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                                <span className="text-xs text-white/80 font-mono font-bold">{vuln.id || `VULN-${String(i+1).padStart(3,'0')}`}</span>
+                                                <span className="px-2 py-0.5 bg-white/20 text-white rounded-full text-xs font-bold">{cfg.label}</span>
+                                                {vuln.cwe && (
+                                                  <span className="px-2 py-0.5 bg-black/20 text-white/90 rounded-full text-xs font-mono">{vuln.cwe}</span>
+                                                )}
+                                              </div>
+                                              <h4 className="font-bold text-white text-sm sm:text-base">{vuln.title}</h4>
+                                              <p className="text-white/80 text-xs mt-0.5">{vuln.type}</p>
+                                            </div>
+                                          </div>
+                                          {vuln.line && (
+                                            <span className="px-3 py-1 bg-white/25 text-white rounded-full text-xs font-bold whitespace-nowrap border border-white/30 flex-shrink-0">
+                                              Ligne {vuln.line}
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {/* Corps vuln */}
+                                        <div className="p-4 sm:p-5 bg-white space-y-3">
+
+                                          {/* Confiance du modèle */}
+                                          {vuln.confidence && (
+                                            <div className="flex items-center gap-3">
+                                              <div className="flex-1 bg-gray-100 rounded-full h-2">
+                                                <div
+                                                  className={`h-2 rounded-full bg-gradient-to-r ${cfg.badge} transition-all duration-700`}
+                                                  style={{ width: `${vuln.confidence}%` }}
+                                                />
+                                              </div>
+                                              <span className="text-xs font-bold text-gray-600 whitespace-nowrap">
+                                                {vuln.confidence}% confiance
+                                              </span>
+                                            </div>
+                                          )}
+
+                                          {/* Description */}
+                                          <div className="flex items-start gap-3">
+                                            <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
+                                            <div>
+                                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Description</p>
+                                              <p className="text-sm text-gray-700">{vuln.description}</p>
+                                            </div>
+                                          </div>
+
+                                          {/* Lignes vulnérables détectées par ton modèle */}
+                                          {vuln.lines && vuln.lines.length > 0 && (
+                                            <div>
+                                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                                <span>📍</span> Lignes vulnérables détectées ({vuln.lines.length})
+                                              </p>
+                                              <div className="space-y-2 rounded-xl overflow-hidden border border-gray-200">
+                                                {vuln.lines.map((vl, li) => (
+                                                  <div key={li} className="bg-gray-950 text-gray-100">
+                                                    {/* Header ligne */}
+                                                    <div className="flex items-center justify-between px-3 py-1.5 bg-red-900/40 border-b border-red-800/40">
+                                                      <span className="text-xs font-mono font-bold text-red-300">
+                                                        ⚠️ Ligne {vl.line}
+                                                      </span>
+                                                    </div>
+                                                    {/* Code */}
+                                                    <div className="flex">
+                                                      <span className="select-none px-3 py-2 text-xs font-mono text-gray-600 border-r border-gray-800 min-w-[2.5rem] text-right bg-gray-900">
+                                                        {vl.line}
+                                                      </span>
+                                                      <pre className="px-3 py-2 text-xs font-mono text-red-300 overflow-x-auto flex-1 whitespace-pre-wrap break-all">
+                                                        {vl.code}
+                                                      </pre>
+                                                    </div>
+                                                    {/* Explication */}
+                                                    {vl.explanation && (
+                                                      <div className="px-3 py-2 bg-amber-900/30 border-t border-amber-800/30">
+                                                        <p className="text-xs text-amber-300">
+                                                          <strong>⚠️ Problème :</strong> {vl.explanation}
+                                                        </p>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* Fix */}
+                                          {vuln.fix && (
+                                            <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl p-3">
+                                              <span className="text-green-600 flex-shrink-0 text-lg">💡</span>
+                                              <div>
+                                                <p className="text-xs font-bold text-green-700 uppercase tracking-wider mb-1">Comment corriger</p>
+                                                <p className="text-sm text-green-800">{vuln.fix}</p>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Footer sécurité — ton modèle local */}
+                              <div className="mt-6 flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                                <ShieldAlert className="w-5 h-5 text-slate-500 flex-shrink-0" />
+                                <p className="text-xs text-slate-500">
+                                  Analyse propulsée par ton <strong className="text-purple-600">modèle RoBERTa fine-tuné</strong> (localhost:5001).
+                                  Les résultats sont indicatifs — effectuez toujours un audit complet avant mise en production.
+                                </p>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-purple-50 to-pink-50">
+                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                        <button className="flex-1 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl hover:shadow-2xl transition-all font-semibold shadow-lg hover:scale-105">
+                          ✨ Appliquer les corrections
+                        </button>
+                        <button onClick={handleReset}
+                          className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105">
+                          Nouvelle analyse
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-        </div>
+            )}
 
-        {/* Actions */}
-        <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-purple-50 to-pink-50">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <button className="flex-1 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl hover:shadow-2xl transition-all font-semibold shadow-lg hover:scale-105">
-              ✨ Appliquer les corrections
-            </button>
-            <button onClick={handleReset}
-              className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105">
-              Nouvelle analyse
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-  </div>
-)}
-
-            {/* Badge invité sous la zone de saisie */}
+            {/* Badge invité */}
             {!isLoggedIn && guestStatus && !showResults && !isAnalyzing && (
               <div className="mt-4 bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center animate-fade-in">
                 <p className="text-sm text-amber-800 mb-2">
@@ -982,14 +1205,14 @@ export default function CodeReview() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {[
-              { icon: <Terminal className="w-8 h-8" />, title: t.featureMultiLang,        desc: t.featureMultiLangDesc,        gradient: 'from-purple-500 to-purple-600' },
-              { icon: <Bug      className="w-8 h-8" />, title: t.featureBugDetection,     desc: t.featureBugDetectionDesc,     gradient: 'from-pink-500 to-pink-600' },
-              { icon: <FileText className="w-8 h-8" />, title: t.featureAutoDocs,         desc: t.featureAutoDocsDesc,         gradient: 'from-blue-500 to-blue-600' },
-              { icon: <Shield   className="w-8 h-8" />, title: t.featureSecurity,         desc: t.featureSecurityDesc,         gradient: 'from-green-500 to-green-600' },
-              { icon: <Zap      className="w-8 h-8" />, title: t.featureOptimization,     desc: t.featureOptimizationDesc,     gradient: 'from-yellow-500 to-orange-600' },
-              { icon: <TrendingUp className="w-8 h-8"/>, title: t.featureMetrics,         desc: t.featureMetricsDesc,         gradient: 'from-indigo-500 to-indigo-600' },
-              { icon: <Clock    className="w-8 h-8" />, title: t.featureSpeed,            desc: t.featureSpeedDesc,            gradient: 'from-cyan-500 to-cyan-600' },
-              { icon: <Users    className="w-8 h-8" />, title: t.featureCollaboration,    desc: t.featureCollaborationDesc,    gradient: 'from-rose-500 to-rose-600' },
+              { icon: <Terminal className="w-8 h-8" />, title: t.featureMultiLang,     desc: t.featureMultiLangDesc,     gradient: 'from-purple-500 to-purple-600' },
+              { icon: <Bug      className="w-8 h-8" />, title: t.featureBugDetection,  desc: t.featureBugDetectionDesc,  gradient: 'from-pink-500 to-pink-600' },
+              { icon: <FileText className="w-8 h-8" />, title: t.featureAutoDocs,      desc: t.featureAutoDocsDesc,      gradient: 'from-blue-500 to-blue-600' },
+              { icon: <Shield   className="w-8 h-8" />, title: t.featureSecurity,      desc: t.featureSecurityDesc,      gradient: 'from-green-500 to-green-600' },
+              { icon: <Zap      className="w-8 h-8" />, title: t.featureOptimization,  desc: t.featureOptimizationDesc,  gradient: 'from-yellow-500 to-orange-600' },
+              { icon: <TrendingUp className="w-8 h-8"/>, title: t.featureMetrics,      desc: t.featureMetricsDesc,       gradient: 'from-indigo-500 to-indigo-600' },
+              { icon: <Clock    className="w-8 h-8" />, title: t.featureSpeed,         desc: t.featureSpeedDesc,         gradient: 'from-cyan-500 to-cyan-600' },
+              { icon: <Users    className="w-8 h-8" />, title: t.featureCollaboration, desc: t.featureCollaborationDesc, gradient: 'from-rose-500 to-rose-600' },
             ].map((f, i) => (
               <div key={i} className="bg-white rounded-2xl p-4 sm:p-6 border-2 border-gray-200 hover:border-transparent hover:shadow-2xl transition-all group cursor-pointer transform hover:scale-105 animate-fade-in-up"
                 style={{ animationDelay: `${i * 0.1}s` }}>
@@ -1112,9 +1335,7 @@ export default function CodeReview() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-//  TRADUCTIONS PAR DÉFAUT
-// ─────────────────────────────────────────────────────────────
+// ─── TRADUCTIONS PAR DÉFAUT ───────────────────────────────────────────────────
 const defaultTranslations = {
   fr: {
     features:'Fonctionnalités', pricing:'Tarifs', docs:'Documentation', start:'Commencer',
