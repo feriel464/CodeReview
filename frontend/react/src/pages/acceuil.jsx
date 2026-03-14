@@ -69,50 +69,50 @@ async function analyzeVulnerabilities(code, language) {
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
     const data = await response.json();
-
-    // Transformer la réponse de ton API vers le format attendu par l'interface
     if (!data.success) throw new Error('API returned success=false');
 
     const isVulnerable = data.vulnerable;
-    const vulnType     = data.type;        // ex: "sql_injection"
-    const severity     = SEVERITY_MAP[data.severity] || 'info';
-    const confidence   = data.confidence;  // ex: 63.64
 
-    // Construire le tableau de vulnérabilités pour l'interface
-    const vulnerabilities = isVulnerable ? [{
-      id:          'VULN-001',
-      type:        TYPE_LABELS[vulnType] || vulnType,
-      severity,
-      title:       TYPE_LABELS[vulnType] || vulnType,
-      description: data.message,
-      fix:         FIX_MAP[vulnType] || 'Corrigez la vulnérabilité identifiée.',
-      cwe:         CWE_MAP[vulnType] || null,
-      confidence,
-      // Lignes vulnérables détectées par ton modèle
-      lines:       data.vulnerable_lines || [],
-    }] : [];
+    // ── Construire la liste depuis data.vulnerabilities[] ──
+    const vulnerabilities = (data.vulnerabilities || []).map((vuln, i) => {
+      const severity = SEVERITY_MAP[vuln.severity] || 'info';
+      return {
+        id:          `VULN-${String(i + 1).padStart(3, '0')}`,
+        type:        TYPE_LABELS[vuln.type] || vuln.type,
+        severity,
+        title:       TYPE_LABELS[vuln.type] || vuln.type,
+        description: `${TYPE_LABELS[vuln.type] || vuln.type} détectée avec ${vuln.confidence}% de confiance`,
+        fix:         FIX_MAP[vuln.type] || 'Corrigez la vulnérabilité identifiée.',
+        cwe:         CWE_MAP[vuln.type] || null,
+        confidence:  vuln.confidence,
+        lines:       vuln.vulnerable_lines || [],
+      };
+    });
 
-    // Score de sécurité : 100 si safe, sinon basé sur la confiance et la sévérité
+    // ── Score de sécurité basé sur la pire vulnérabilité ──
     let securityScore = 100;
-    if (isVulnerable) {
+    if (isVulnerable && vulnerabilities.length > 0) {
       const severityPenalty = { critical: 60, high: 45, medium: 30, low: 15, info: 5 };
-      const penalty = severityPenalty[severity] || 30;
-      securityScore = Math.max(0, Math.round(100 - penalty - (confidence * 0.3)));
+      // Prendre la vulnérabilité la plus grave
+      const worstPenalty = Math.max(
+        ...vulnerabilities.map(v => severityPenalty[v.severity] || 0)
+      );
+      const avgConfidence = vulnerabilities.reduce((sum, v) => sum + v.confidence, 0) / vulnerabilities.length;
+      securityScore = Math.max(0, Math.round(100 - worstPenalty - (avgConfidence * 0.2)));
     }
 
     return {
       vulnerabilities,
       securityScore,
       summary: isVulnerable
-        ? `${TYPE_LABELS[vulnType]} détectée avec ${confidence}% de confiance`
+        ? `${vulnerabilities.length} vulnérabilité(s) détectée(s)`
         : 'Aucune vulnérabilité détectée par le modèle',
       rawData: data,
     };
 
   } catch (e) {
-    console.error('Vuln analysis error (backend unreachable?):', e);
+    console.error('Vuln analysis error:', e);
     return {
       vulnerabilities: [],
       securityScore: null,
@@ -121,7 +121,6 @@ async function analyzeVulnerabilities(code, language) {
     };
   }
 }
-
 export default function CodeReview() {
   const { user: authUser, logout } = useAuth();
   const navigate = useNavigate();

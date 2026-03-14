@@ -59,6 +59,8 @@ SEVERITY = {
     "path_traversal": "high"
 }
 
+SEVERITY_ORDER = {"critical": 0, "high": 1, "none": 2}
+
 # ══════════════════════════════════════════════════════════
 # PATTERNS DE DÉTECTION PAR LIGNE
 # ══════════════════════════════════════════════════════════
@@ -103,16 +105,21 @@ VULNERABILITY_PATTERNS = {
     ]
 }
 
+EXPLANATIONS = {
+    "sql_injection": "Concaténation de variables dans une requête SQL permettant l'injection de code malveillant",
+    "xss": "Insertion non sécurisée de contenu utilisateur dans le HTML",
+    "exposed_secret": "Secret ou clé API écrit en dur dans le code source",
+    "command_injection": "Exécution de commandes système avec des données utilisateur non validées",
+    "path_traversal": "Accès non sécurisé au système de fichiers permettant la lecture de fichiers arbitraires"
+}
+
 def detect_vulnerable_lines(code, vulnerability_type):
-    """
-    Détecte les lignes spécifiques contenant la vulnérabilité
-    """
     if vulnerability_type not in VULNERABILITY_PATTERNS:
         return []
-    
+
     patterns = VULNERABILITY_PATTERNS[vulnerability_type]
     vulnerable_lines = []
-    
+
     lines = code.split('\n')
     for line_num, line in enumerate(lines, 1):
         for pattern in patterns:
@@ -123,7 +130,7 @@ def detect_vulnerable_lines(code, vulnerability_type):
                     "pattern": pattern
                 })
                 break
-    
+
     return vulnerable_lines
 
 # ══════════════════════════════════════════════════════════
@@ -139,27 +146,21 @@ class VulnerableLineDetail(BaseModel):
     code: str
     explanation: str
 
-class VulnerabilityResponse(BaseModel):
-    success: bool
-    vulnerable: bool
+# ── NOUVEAU : un objet par vulnérabilité détectée ──
+class VulnerabilityDetail(BaseModel):
     type: str
     severity: str
     confidence: float
-    language: str
-    message: str
     vulnerable_lines: list[VulnerableLineDetail] = []
 
-# ══════════════════════════════════════════════════════════
-# EXPLICATIONS PAR TYPE
-# ══════════════════════════════════════════════════════════
-
-EXPLANATIONS = {
-    "sql_injection": "Concaténation de variables dans une requête SQL permettant l'injection de code malveillant",
-    "xss": "Insertion non sécurisée de contenu utilisateur dans le HTML",
-    "exposed_secret": "Secret ou clé API écrit en dur dans le code source",
-    "command_injection": "Exécution de commandes système avec des données utilisateur non validées",
-    "path_traversal": "Accès non sécurisé au système de fichiers permettant la lecture de fichiers arbitraires"
-}
+# ── NOUVEAU : réponse avec liste de vulnérabilités ──
+class VulnerabilityResponse(BaseModel):
+    success: bool
+    vulnerable: bool
+    language: str
+    message: str
+    total_vulnerabilities: int
+    vulnerabilities: list[VulnerabilityDetail] = []
 
 # ══════════════════════════════════════════════════════════
 # ROUTES
@@ -170,7 +171,7 @@ async def root():
     return {
         "message": "Security Analysis API",
         "status": "running",
-        "model": "UniXcoder fine-tuned",
+        "model": "RoBERTa fine-tuned",
         "device": str(device)
     }
 
@@ -184,11 +185,8 @@ async def health():
 
 @app.post("/analyze", response_model=VulnerabilityResponse)
 async def analyze_code(request: CodeRequest):
-    """
-    Analyse du code pour détecter les vulnérabilités avec détection ligne par ligne
-    """
     try:
-        # Tokeniser le code complet
+        # ── 1. Prédiction ML → récupérer les probabilités de TOUS les types ──
         inputs = tokenizer(
             request.code,
             padding='max_length',
@@ -196,52 +194,58 @@ async def analyze_code(request: CodeRequest):
             max_length=512,
             return_tensors='pt'
         ).to(device)
-        
-        # Prédiction globale
+
         with torch.no_grad():
             outputs = model(**inputs)
-            logits = outputs.logits
-            probs = torch.softmax(logits, dim=-1)
-            predicted_class = torch.argmax(probs, dim=-1).item()
-            confidence = probs[0][predicted_class].item()
-        
-        vulnerability_type = LABELS[predicted_class]
-        is_vulnerable = vulnerability_type != "safe"
-        severity = SEVERITY[vulnerability_type]
-        
-        # Détecter les lignes vulnérables
-        vulnerable_lines = []
-        if is_vulnerable:
-            detected_lines = detect_vulnerable_lines(request.code, vulnerability_type)
-            
-            for line_info in detected_lines:
-                vulnerable_lines.append(VulnerableLineDetail(
-                    line=line_info["line"],
-                    code=line_info["code"],
-                    explanation=EXPLANATIONS.get(vulnerability_type, "Vulnérabilité détectée")
+            probs = torch.softmax(outputs.logits, dim=-1)[0]  # tensor de 6 scores
+
+        # ── 2. Scanner TOUS les types de vulnérabilités avec les regex ──
+        found_vulnerabilities = []
+
+        for vuln_type in VULNERABILITY_PATTERNS.keys():
+            detected_lines = detect_vulnerable_lines(request.code, vuln_type)
+
+            if detected_lines:
+                # Récupérer le score ML pour ce type spécifique
+                label_index = next(k for k, v in LABELS.items() if v == vuln_type)
+                confidence = round(probs[label_index].item() * 100, 2)
+
+                vulnerable_lines = [
+                    VulnerableLineDetail(
+                        line=line_info["line"],
+                        code=line_info["code"],
+                        explanation=EXPLANATIONS.get(vuln_type, "Vulnérabilité détectée")
+                    )
+                    for line_info in detected_lines
+                ]
+
+                found_vulnerabilities.append(VulnerabilityDetail(
+                    type=vuln_type,
+                    severity=SEVERITY[vuln_type],
+                    confidence=confidence,
+                    vulnerable_lines=vulnerable_lines
                 ))
-        
-        # Message personnalisé
+
+        # ── 3. Trier par sévérité (critical → high) ──
+        found_vulnerabilities.sort(key=lambda v: SEVERITY_ORDER[v.severity])
+
+        is_vulnerable = len(found_vulnerabilities) > 0
+
         if is_vulnerable:
-            if vulnerable_lines:
-                line_numbers = ', '.join([str(vl.line) for vl in vulnerable_lines])
-                message = f"{vulnerability_type.replace('_', ' ').title()} détectée aux lignes {line_numbers} ({confidence*100:.1f}% de confiance)"
-            else:
-                message = f"{vulnerability_type.replace('_', ' ').title()} détectée avec {confidence*100:.1f}% de confiance"
+            types = ', '.join([v.type.replace('_', ' ').title() for v in found_vulnerabilities])
+            message = f"{len(found_vulnerabilities)} vulnérabilité(s) détectée(s) : {types}"
         else:
             message = "Aucune vulnérabilité détectée"
-        
+
         return VulnerabilityResponse(
             success=True,
             vulnerable=is_vulnerable,
-            type=vulnerability_type,
-            severity=severity,
-            confidence=round(confidence * 100, 2),
             language=request.language,
             message=message,
-            vulnerable_lines=vulnerable_lines
+            total_vulnerabilities=len(found_vulnerabilities),
+            vulnerabilities=found_vulnerabilities
         )
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
