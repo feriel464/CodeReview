@@ -5,6 +5,7 @@ const authRoutes = require('./routes/authRoutes');
 const translationRoutes = require('./routes/translationRoutes');
 const analysisRoutes = require('./routes/analysisRoutes'); 
 const securityRoutes = require('./routes/securityRoutes');
+const imageAnalysisRoutes = require('./routes/imageAnalysisRoutes');
 
 require('dotenv').config();
 
@@ -22,6 +23,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/translations', translationRoutes); 
 app.use('/api/analyze', analysisRoutes); 
 app.use('/api/security', securityRoutes);
+app.use('/api/image', imageAnalysisRoutes);
 
 // Route de test
 app.get('/api', async (req, res) => {

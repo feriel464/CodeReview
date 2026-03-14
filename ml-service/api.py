@@ -16,7 +16,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "http://localhost:5173",  # ← AJOUTE CETTE LIGNE (Vite)
+        "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173"
     ],
@@ -148,19 +148,10 @@ class VulnerabilityResponse(BaseModel):
     language: str
     message: str
     vulnerable_lines: list[VulnerableLineDetail] = []
-    recommendation: str = ""
 
 # ══════════════════════════════════════════════════════════
-# RECOMMANDATIONS PAR TYPE
+# EXPLICATIONS PAR TYPE
 # ══════════════════════════════════════════════════════════
-
-RECOMMENDATIONS = {
-    "sql_injection": "Utilisez des requêtes préparées (parameterized queries) avec des placeholders (?, %s) au lieu de concaténer les variables directement dans la requête SQL.",
-    "xss": "Échappez toutes les données utilisateur avant de les afficher dans le HTML. Utilisez des bibliothèques comme DOMPurify ou escape-html.",
-    "exposed_secret": "Stockez les secrets dans des variables d'environnement (process.env, os.environ) ou un gestionnaire de secrets (AWS Secrets Manager, Azure Key Vault).",
-    "command_injection": "Utilisez des listes de paramètres au lieu de chaînes shell (subprocess.run(['cmd', arg]) au lieu de os.system('cmd ' + arg)). Évitez eval() et exec().",
-    "path_traversal": "Validez et sanitizez les chemins de fichiers. Utilisez os.path.basename() ou path.basename() pour extraire seulement le nom du fichier."
-}
 
 EXPLANATIONS = {
     "sql_injection": "Concaténation de variables dans une requête SQL permettant l'injection de code malveillant",
@@ -248,8 +239,7 @@ async def analyze_code(request: CodeRequest):
             confidence=round(confidence * 100, 2),
             language=request.language,
             message=message,
-            vulnerable_lines=vulnerable_lines,
-            recommendation=RECOMMENDATIONS.get(vulnerability_type, "") if is_vulnerable else ""
+            vulnerable_lines=vulnerable_lines
         )
         
     except Exception as e:

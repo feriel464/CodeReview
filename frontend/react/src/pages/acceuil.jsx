@@ -171,7 +171,9 @@ export default function CodeReview() {
   const [translations, setTranslations]             = useState({});
   const [loading, setLoading]                       = useState(true);
   const [guestStatus, setGuestStatus]               = useState(null);
-
+const [selectedImage, setSelectedImage] = useState(null);
+const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+const [imageAnalysisData, setImageAnalysisData] = useState(null);
   useEffect(() => {
     loadAll();
     const onScroll = () => setScrollY(window.scrollY);
@@ -324,14 +326,20 @@ export default function CodeReview() {
     }
   };
 
-  const handleReset = () => {
-    setShowResults(false);
-    setAnalysisResult(INITIAL_RESULT);
-    setVulnResult(null);
-    setCodeInput('');
-    setActiveTab('improvements');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+const handleReset = () => {
+  setShowResults(false);
+  setAnalysisResult(INITIAL_RESULT);
+  setVulnResult(null);
+  setCodeInput('');
+  setActiveTab('improvements');
+  
+  // Nettoyer l'image
+  setSelectedImage(null);
+  setSelectedImagePreview(null);
+  setImageAnalysisData(null);
+  
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
 
   const handleLogout = () => {
     setShowUserMenu(false);
@@ -345,7 +353,131 @@ export default function CodeReview() {
     setCodeInput('');
     checkGuestStatus();
   };
+// Fonction pour gérer la sélection d'image
+const handleImageUpload = (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    if (!file.type.startsWith('image/')) {
+      alert('⚠️ Veuillez sélectionner une image valide');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('⚠️ L\'image ne doit pas dépasser 10 MB');
+      return;
+    }
+    setSelectedImage(file);
+    setSelectedImagePreview(URL.createObjectURL(file));
+  }
+};
 
+// Fonction pour analyser l'image
+const handleAnalyzeImage = async () => {
+  if (!selectedImage) {
+    alert('⚠️ Veuillez sélectionner une image');
+    return;
+  }
+
+  if (!isLoggedIn) {
+    alert('⚠️ Connectez-vous pour analyser des images');
+    navigate('/login');
+    return;
+  }
+
+  try {
+    setIsAnalyzing(true);
+    setShowResults(false);
+    setVulnResult(null);
+    setImageAnalysisData(null);
+
+    const formData = new FormData();
+    formData.append('image', selectedImage);
+    formData.append('language', programmingLanguage);
+
+    const token = localStorage.getItem('token');
+
+    console.log('📸 Envoi de l\'image pour analyse...');
+
+    const response = await axios.post(
+      `${API_URL}/image/analyze-image`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 120000 // 2 minutes
+      }
+    );
+
+    if (response.data.success) {
+      const data = response.data;
+
+      console.log('✅ Analyse d\'image réussie');
+      console.log('📊 OCR Confidence:', data.ocrConfidence + '%');
+      console.log('📝 Code extrait:', data.extractedCode.substring(0, 100) + '...');
+
+      // Sauvegarder les données spécifiques à l'image
+      setImageAnalysisData({
+        imageUrl: data.imageUrl,
+        ocrConfidence: data.ocrConfidence,
+        extractedCode: data.extractedCode,
+        correctedCode: data.correctedCode
+      });
+
+      // Mettre à jour le code dans la zone de texte
+      setCodeInput(data.correctedCode);
+
+      // Résultats d'analyse
+      setAnalysisResult({
+        qualityScore: data.analysis.score,
+        improvements: data.analysis.improvements || [],
+        codeSmells: data.analysis.codeSmells || [],
+        documentation: {
+          coverage: 0,
+          missingDocs: []
+        },
+        metrics: {},
+        summary: data.analysis.summary
+      });
+
+      // Résultats de sécurité
+      setVulnResult(data.analysis.security ? {
+        vulnerabilities: data.analysis.security.vulnerable ? [{
+          id: 'VULN-001',
+          type: data.analysis.security.type,
+          severity: SEVERITY_MAP[data.analysis.security.severity] || 'info',
+          title: TYPE_LABELS[data.analysis.security.type] || data.analysis.security.type,
+          description: data.analysis.security.message,
+          fix: FIX_MAP[data.analysis.security.type] || 'Corrigez la vulnérabilité identifiée.',
+          cwe: CWE_MAP[data.analysis.security.type] || null,
+          confidence: data.analysis.security.confidence,
+          lines: data.analysis.security.vulnerable_lines || [],
+        }] : [],
+        securityScore: data.analysis.security.vulnerable ? 
+          Math.max(0, 100 - (data.analysis.security.confidence * 0.5)) : 100,
+        summary: data.analysis.security.message
+      } : null);
+
+      setTimeout(() => {
+        setIsAnalyzing(false);
+        setShowResults(true);
+        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+      }, 2000);
+    }
+
+  } catch (error) {
+    setIsAnalyzing(false);
+    console.error('❌ Erreur analyse image:', error);
+    
+    if (error.response?.status === 400) {
+      alert(`❌ ${error.response.data.message || 'Image invalide ou aucun code détecté'}`);
+    } else if (error.response?.status === 503) {
+      alert('❌ Service OCR indisponible. Assurez-vous que le service Python tourne sur le port 5002.');
+    } else {
+      alert('❌ Erreur lors de l\'analyse de l\'image');
+    }
+  }
+};
   // ─── Helpers ─────────────────────────────────────────────
   const getScoreColor = (s) =>
     s >= 80 ? 'from-green-500 to-emerald-500'
@@ -675,21 +807,81 @@ export default function CodeReview() {
                   </div>
                 )}
 
-                {inputMethod === 'image' && (
-                  <div onClick={handleAnalyze}
-                    className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-blue-300 p-16 text-center hover:border-blue-500 hover:bg-white hover:shadow-2xl cursor-pointer group transition-all">
-                    <div className="mb-6 inline-block">
-                      <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-3xl shadow-lg flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <ImageIcon className="w-12 h-12 text-blue-600 group-hover:animate-pulse" />
-                      </div>
-                    </div>
-                    <h3 className="text-2xl font-semibold text-gray-900 mb-3">{t.uploadImageHere}</h3>
-                    <p className="text-base text-gray-600 mb-6">Screenshots, photos de code, diagrammes...</p>
-                    <div className="px-8 py-3 text-base bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl inline-block">
-                      Sélectionner une image
-                    </div>
-                  </div>
-                )}
+              {inputMethod === 'image' && (
+  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-blue-300 p-8 sm:p-16 text-center hover:border-blue-500 hover:bg-white hover:shadow-2xl transition-all">
+    
+    <input
+      type="file"
+      accept="image/*"
+      onChange={handleImageUpload}
+      className="hidden"
+      id="image-upload"
+    />
+    
+    {!selectedImage ? (
+      <label htmlFor="image-upload" className="cursor-pointer block">
+        <div className="mb-6 inline-block">
+          <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
+            <ImageIcon className="w-12 h-12 text-blue-600 animate-pulse" />
+          </div>
+        </div>
+        <h3 className="text-2xl font-semibold text-gray-900 mb-3">{t.uploadImageHere}</h3>
+        <p className="text-base text-gray-600 mb-6">
+          Screenshots de code, photos de tableau blanc, diagrammes...
+        </p>
+        <div className="px-8 py-3 text-base bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl inline-block hover:shadow-xl transition-all font-medium hover:scale-105">
+          📷 Sélectionner une image
+        </div>
+        <p className="text-xs text-gray-500 mt-4">
+          Formats supportés : JPG, PNG, WebP · Max 10 MB
+        </p>
+      </label>
+    ) : (
+      <div className="animate-fade-in">
+        <div className="mb-4">
+          <img 
+            src={selectedImagePreview} 
+            alt="Preview" 
+            className="max-w-full max-h-96 mx-auto rounded-xl shadow-2xl border-2 border-blue-200"
+          />
+        </div>
+        
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <ImageIcon className="w-5 h-5 text-blue-600" />
+            <p className="text-sm font-semibold text-blue-900">{selectedImage.name}</p>
+          </div>
+          <p className="text-xs text-blue-700">
+            {(selectedImage.size / 1024).toFixed(2)} KB · {programmingLanguage.toUpperCase()}
+          </p>
+        </div>
+
+        <div className="flex gap-3 justify-center">
+          <label htmlFor="image-upload" className="px-6 py-3 text-sm border-2 border-blue-300 text-blue-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-semibold cursor-pointer">
+            🔄 Changer l'image
+          </label>
+          
+          <button 
+            onClick={handleAnalyzeImage}
+            disabled={isAnalyzing}
+            className="px-8 py-3 text-sm bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isAnalyzing ? '⏳ Analyse en cours...' : '🔍 Analyser l\'image'}
+          </button>
+        </div>
+
+        <div className="mt-4 text-xs text-gray-500">
+          <p>💡 L'IA va extraire le code de l'image avec OCR, puis l'analyser pour détecter :</p>
+          <div className="flex gap-2 justify-center mt-2 flex-wrap">
+            <span className="px-2 py-1 bg-gray-100 rounded">Qualité du code</span>
+            <span className="px-2 py-1 bg-gray-100 rounded">Code smells</span>
+            <span className="px-2 py-1 bg-red-100 text-red-700 rounded">Vulnérabilités</span>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
               </div>
             )}
 
@@ -825,7 +1017,57 @@ export default function CodeReview() {
                         </div>
                       </div>
                     </div>
+{/* Bannière spécifique à l'analyse d'image */}
+{imageAnalysisData && (
+  <div className="p-6 sm:p-8 bg-gradient-to-r from-blue-50 to-cyan-50 border-b-2 border-blue-200">
+    <div className="flex flex-col sm:flex-row items-start gap-6">
+      <div className="flex-shrink-0">
+        <img 
+          src={imageAnalysisData.imageUrl} 
+          alt="Code analysé" 
+          className="w-32 h-32 sm:w-40 sm:h-40 object-cover rounded-xl shadow-lg border-2 border-blue-300"
+        />
+      </div>
+      
+      <div className="flex-1">
+        <div className="flex items-center gap-2 mb-3">
+          <ImageIcon className="w-5 h-5 text-blue-600" />
+          <h4 className="font-bold text-blue-900 text-lg">
+            Analyse depuis image
+          </h4>
+          <span className="px-3 py-1 bg-blue-200 text-blue-800 rounded-full text-xs font-bold">
+            OCR : {imageAnalysisData.ocrConfidence}% confiance
+          </span>
+        </div>
+        
+        {analysisResult.summary && (
+          <p className="text-sm text-blue-700 mb-3">
+            📝 {analysisResult.summary}
+          </p>
+        )}
 
+        {imageAnalysisData.correctedCode !== imageAnalysisData.extractedCode && (
+          <div className="flex items-start gap-2 text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-2">
+            <span className="text-green-600 text-base">✨</span>
+            <div>
+              <p className="font-semibold text-green-800">Code automatiquement corrigé par DeepSeek</p>
+              <p className="text-green-700">Les erreurs d'OCR et de formatage ont été corrigées</p>
+            </div>
+          </div>
+        )}
+
+        <details className="mt-3">
+          <summary className="text-xs text-blue-600 font-semibold cursor-pointer hover:text-blue-700">
+            📋 Voir le code brut extrait par OCR
+          </summary>
+          <pre className="mt-2 p-3 bg-gray-900 text-gray-100 rounded-lg text-xs overflow-x-auto max-h-40 border border-gray-700">
+            {imageAnalysisData.extractedCode}
+          </pre>
+        </details>
+      </div>
+    </div>
+  </div>
+)}
                     {/* Tabs — maintenant avec Vulnérabilités */}
                     <div className="border-b border-gray-200 px-6 sm:px-8 bg-white/50 overflow-x-auto">
                       <div className="flex gap-4 sm:gap-6 min-w-max">
