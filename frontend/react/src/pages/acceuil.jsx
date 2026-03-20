@@ -791,20 +791,106 @@ const handleAnalyzeImage = async () => {
                 )}
 
                 {inputMethod === 'upload' && (
-                  <div onClick={handleAnalyze}
-                    className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-purple-300 p-16 text-center hover:border-purple-500 hover:bg-white hover:shadow-2xl cursor-pointer group transition-all">
-                    <div className="mb-6 inline-block">
-                      <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl shadow-lg flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <Upload className="w-12 h-12 text-purple-600 group-hover:animate-bounce" />
-                      </div>
-                    </div>
-                    <h3 className="text-2xl font-semibold text-gray-900 mb-3">{t.dropHere}</h3>
-                    <p className="text-base text-gray-600 mb-6">Python, JavaScript, TypeScript, Java, C++, Go...</p>
-                    <div className="px-8 py-3 text-base bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-xl transition-all font-medium hover:scale-105 inline-block">
-                      Sélectionner des fichiers
-                    </div>
-                  </div>
-                )}
+  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-purple-300 p-16 text-center hover:border-purple-500 transition-all">
+
+    <input
+      type="file"
+      accept=".pdf"
+      id="pdf-upload"
+      className="hidden"
+      onChange={async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsAnalyzing(true);
+        setShowResults(false);
+        setVulnResult(null);
+
+        try {
+          const formData = new FormData();
+          formData.append('pdf', file);
+          formData.append('language', programmingLanguage);
+
+          const token = localStorage.getItem('token');
+          const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+          const response = await axios.post(
+            `${API_URL}/pdf/analyze-pdf`,
+            formData,
+            { headers, timeout: 60000 }
+          );
+
+          if (response.data.success) {
+            const { data, security, extractedCode, language: detectedLang } = response.data;
+
+            // Mettre à jour la textarea avec le code extrait
+            setCodeInput(extractedCode);
+            setProgrammingLanguage(detectedLang);
+
+            setAnalysisResult({
+              qualityScore:  data.qualityScore,
+              improvements:  data.improvements,
+              codeSmells:    data.codeSmells,
+              documentation: data.documentation,
+              metrics:       data.metrics,
+            });
+
+            // Adapter la réponse sécurité au format de ton UI
+            if (security?.vulnerable) {
+              setVulnResult({
+                vulnerabilities: (security.vulnerabilities || []).map((v, i) => ({
+                  id:          `VULN-${String(i + 1).padStart(3, '0')}`,
+                  type:        TYPE_LABELS[v.type] || v.type,
+                  severity:    SEVERITY_MAP[v.severity] || 'info',
+                  title:       TYPE_LABELS[v.type] || v.type,
+                  description: `${v.type} — ${v.confidence}% de confiance`,
+                  fix:         FIX_MAP[v.type] || 'Corrigez la vulnérabilité.',
+                  cwe:         CWE_MAP[v.type] || null,
+                  confidence:  v.confidence,
+                  lines:       v.vulnerable_lines || [],
+                })),
+                securityScore: Math.max(0, 100 - 60),
+                summary: security.message,
+              });
+            } else {
+              setVulnResult({
+                vulnerabilities: [],
+                securityScore: 100,
+                summary: 'Aucune vulnérabilité détectée',
+              });
+            }
+
+            setTimeout(() => {
+              setIsAnalyzing(false);
+              setShowResults(true);
+              setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            }, 1500);
+          }
+
+        } catch (error) {
+          setIsAnalyzing(false);
+          alert(`❌ ${error.response?.data?.message || 'Erreur analyse PDF'}`);
+        }
+      }}
+    />
+
+    <label htmlFor="pdf-upload" className="cursor-pointer block">
+      <div className="mb-6 inline-block">
+        <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
+          <Upload className="w-12 h-12 text-purple-600" />
+        </div>
+      </div>
+      <h3 className="text-2xl font-semibold text-gray-900 mb-3">Déposez votre PDF ici</h3>
+      <p className="text-base text-gray-600 mb-6">
+        Documentation, rapport, livre technique contenant du code
+      </p>
+      <span className="px-8 py-3 text-base bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl inline-block">
+        Sélectionner un PDF
+      </span>
+      <p className="text-xs text-gray-500 mt-4">Max 10 MB · PDF avec texte (pas scanné)</p>
+    </label>
+  </div>
+)}
 
               {inputMethod === 'image' && (
   <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-blue-300 p-8 sm:p-16 text-center hover:border-blue-500 hover:bg-white hover:shadow-2xl transition-all">

@@ -24,6 +24,7 @@ app.use('/api/translations', translationRoutes);
 app.use('/api/analyze', analysisRoutes); 
 app.use('/api/security', securityRoutes);
 app.use('/api/image', imageAnalysisRoutes);
+app.use('/api/pdf', require('./routes/pdf'));
 
 // Route de test
 app.get('/api', async (req, res) => {
