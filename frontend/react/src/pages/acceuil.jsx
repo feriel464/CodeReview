@@ -393,7 +393,6 @@ const handleAnalyzeImage = async () => {
     formData.append('language', programmingLanguage);
 
     const token = localStorage.getItem('token');
-
     console.log('📸 Envoi de l\'image pour analyse...');
 
     const response = await axios.post(
@@ -404,7 +403,7 @@ const handleAnalyzeImage = async () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
         },
-        timeout: 120000 // 2 minutes
+        timeout: 120000
       }
     );
 
@@ -415,48 +414,92 @@ const handleAnalyzeImage = async () => {
       console.log('📊 OCR Confidence:', data.ocrConfidence + '%');
       console.log('📝 Code extrait:', data.extractedCode.substring(0, 100) + '...');
 
-      // Sauvegarder les données spécifiques à l'image
+      // ── 1. Données image ──────────────────────────────
       setImageAnalysisData({
-        imageUrl: data.imageUrl,
+        imageUrl:      data.imageUrl,
         ocrConfidence: data.ocrConfidence,
         extractedCode: data.extractedCode,
         correctedCode: data.correctedCode
       });
 
-      // Mettre à jour le code dans la zone de texte
+      // ── 2. Code dans la textarea ──────────────────────
       setCodeInput(data.correctedCode);
 
-      // Résultats d'analyse
+      // ── 3. Résultats qualité ──────────────────────────
       setAnalysisResult({
-        qualityScore: data.analysis.score,
-        improvements: data.analysis.improvements || [],
-        codeSmells: data.analysis.codeSmells || [],
-        documentation: {
-          coverage: 0,
-          missingDocs: []
-        },
-        metrics: {},
-        summary: data.analysis.summary
+        qualityScore:  data.analysis.score,
+        improvements:  data.analysis.improvements || [],
+        codeSmells:    data.analysis.codeSmells   || [],
+        documentation: { coverage: 0, missingDocs: [] },
+        metrics:       {},
+        summary:       data.analysis.summary
       });
 
-      // Résultats de sécurité
-      setVulnResult(data.analysis.security ? {
-        vulnerabilities: data.analysis.security.vulnerable ? [{
-          id: 'VULN-001',
-          type: data.analysis.security.type,
-          severity: SEVERITY_MAP[data.analysis.security.severity] || 'info',
-          title: TYPE_LABELS[data.analysis.security.type] || data.analysis.security.type,
-          description: data.analysis.security.message,
-          fix: FIX_MAP[data.analysis.security.type] || 'Corrigez la vulnérabilité identifiée.',
-          cwe: CWE_MAP[data.analysis.security.type] || null,
-          confidence: data.analysis.security.confidence,
-          lines: data.analysis.security.vulnerable_lines || [],
-        }] : [],
-        securityScore: data.analysis.security.vulnerable ? 
-          Math.max(0, 100 - (data.analysis.security.confidence * 0.5)) : 100,
-        summary: data.analysis.security.message
-      } : null);
+      // ── 4. Résultats sécurité ─────────────────────────
+      const secData        = data.analysis.security;
+      const allImprovements = data.analysis.improvements || [];
 
+      // Vulnérabilités depuis le ML service
+      const vulnsFromML = (secData?.vulnerabilities || []).map((v, i) => ({
+        id:          `VULN-${String(i + 1).padStart(3, '0')}`,
+        type:        v.type,
+        severity:    SEVERITY_MAP[v.severity] || 'info',
+        title:       TYPE_LABELS[v.type] || v.type,
+        description: v.vulnerable_lines?.[0]?.explanation || TYPE_LABELS[v.type] || v.type,
+        fix:         FIX_MAP[v.type] || 'Corrigez la vulnérabilité.',
+        cwe:         CWE_MAP[v.type] || null,
+        confidence:  v.confidence,
+        lines:       v.vulnerable_lines || [],
+      }));
+
+      // Si ML vide → construire depuis les improvements "error"
+      const typeMap = {
+        'SQL':      { type: 'sql_injection',     severity: 'critical' },
+        'Secret':   { type: 'exposed_secret',    severity: 'high'     },
+        'commande': { type: 'command_injection',  severity: 'critical' },
+        'XSS':      { type: 'xss',               severity: 'high'     },
+      };
+
+      const vulnsFromLocal = vulnsFromML.length === 0
+        ? allImprovements
+            .filter(imp => imp.severity === 'error')
+            .map((imp, i) => {
+              const matched = Object.entries(typeMap)
+                .find(([k]) => imp.message.includes(k));
+              const { type, severity } = matched?.[1]
+                ?? { type: 'exposed_secret', severity: 'medium' };
+              return {
+                id:          `VULN-${String(i + 1).padStart(3, '0')}`,
+                type,
+                severity,
+                title:       TYPE_LABELS[type] || type,
+                description: imp.message,
+                fix:         FIX_MAP[type] || imp.suggestion || 'Corrigez la vulnérabilité.',
+                cwe:         CWE_MAP[type] || null,
+                confidence:  85,
+                lines: [{
+                  line:        imp.line,
+                  code:        (data.correctedCode || '').split('\n')[(imp.line || 1) - 1] || '',
+                  explanation: imp.message,
+                }],
+              };
+            })
+        : [];
+
+      const finalVulns = vulnsFromML.length > 0 ? vulnsFromML : vulnsFromLocal;
+      const vulnCount  = finalVulns.length;
+
+      setVulnResult({
+        vulnerabilities: finalVulns,
+        securityScore:   vulnCount > 0
+          ? Math.max(0, 100 - vulnCount * 25)
+          : 100,
+        summary: vulnCount > 0
+          ? `${vulnCount} vulnérabilité(s) détectée(s) : ${finalVulns.map(v => v.title).join(', ')}`
+          : 'Aucune vulnérabilité détectée',
+      });
+
+      // ── 5. Affichage résultats ────────────────────────
       setTimeout(() => {
         setIsAnalyzing(false);
         setShowResults(true);
@@ -467,7 +510,7 @@ const handleAnalyzeImage = async () => {
   } catch (error) {
     setIsAnalyzing(false);
     console.error('❌ Erreur analyse image:', error);
-    
+
     if (error.response?.status === 400) {
       alert(`❌ ${error.response.data.message || 'Image invalide ou aucun code détecté'}`);
     } else if (error.response?.status === 503) {
@@ -1634,7 +1677,7 @@ const handleAnalyzeImage = async () => {
       </footer>
 
       {/* ── CSS ────────────────────────────────────────────── */}
-      <style jsx>{`
+      <style >{`
         @keyframes float-slow { 0%,100%{transform:translateY(0)translateX(0)rotate(0deg)} 33%{transform:translateY(-30px)translateX(20px)rotate(120deg)} 66%{transform:translateY(20px)translateX(-20px)rotate(240deg)} }
         @keyframes fade-in { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
         @keyframes fade-in-up { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
