@@ -46,18 +46,40 @@ const uploadToCloudinary = (buffer) => {
 function reconstructCleanCode(ocrCode) {
   const lines = ocrCode.split('\n');
   const cleaned = lines.map(line => {
+
+    // ✅ EXISTANT (garder)
     line = line.replace(/\bAPI\s+KEY\b/,    'API_KEY');
     line = line.replace(/\bDB\s+PASS\w+\b/, 'DB_PASSWORD');
     line = line.replace(/os\.\s+system\s*\(/, 'os.system(');
     line = line.replace(/"SELECT\s+FROM/,   '"SELECT * FROM');
-    line = line.replace(
-      /WHERE name = (\w+)$/,
-      "WHERE name = '\" + $1 + \"'"
-    );
+    line = line.replace(/WHERE name = (\w+)$/, "WHERE name = '\" + $1 + \"'");
     line = line.replace(/cursor\.\s+fetchone\s*\(\s*\)/, 'cursor.fetchone()');
     line = line.replace(/"rm -rf \w+\s*\+/, '"rm -rf " +');
+
+    // ✅ NOUVEAU : réparer const/let/var sans "="
+    // "const unusedVariable 42" → "const unusedVariable = 42"
+    line = line.replace(
+      /\b(const|let|var)\s+(\w+)\s+(?!=\s*)([0-9"'`\[{(])/,
+      '$1 $2 = $3'
+    );
+
+    // ✅ NOUVEAU : réparer opérateur * manquant entre deux identifiants
+    // "price quantity" dans un contexte d'affectation → "price * quantity"
+    line = line.replace(
+      /\b(const|let|var)\s+(\w+)\s*=\s*(\w+)\s+(\w+)\s*$/,
+      '$1 $2 = $3 * $4'
+    );
+
+    // ✅ NOUVEAU : réparer console . log → console.log
+    line = line.replace(/console\s*\.\s*log\s*\(/, 'console.log(');
+
+    // ✅ NOUVEAU : supprimer "I" parasite en fin de ligne (artefact OCR)
+    line = line.replace(/\s+I\s*$/, '');
+
+    // ✅ EXISTANT
     const quoteCount = (line.match(/"/g) || []).length;
     if (quoteCount % 2 !== 0) line = line + '"';
+
     return line;
   });
   return cleaned.join('\n');
@@ -71,13 +93,16 @@ function analyzeCodeLocally(code, language) {
   const improvements = [];
   const codeSmells = [];
 
+  // ✅ AJOUT : patterns robustes même si OCR rate = ou *
   const secretKeywords = ['api_key', 'api key', 'password', 'db_password',
                           'secret', 'token', 'passwd'];
+
   lines.forEach((line, i) => {
     const lower = line.toLowerCase();
 
+    // ── Secrets hardcodés ──────────────────────────────────────────
     if (secretKeywords.some(k => lower.includes(k)) &&
-        line.includes('=') && (line.includes('"') || line.includes("'"))) {
+        (line.includes('"') || line.includes("'"))) {
       improvements.push({
         line: i + 1,
         message: 'Secret/credential hardcodé dans le code',
@@ -86,26 +111,99 @@ function analyzeCodeLocally(code, language) {
       });
     }
 
-    if (lower.includes('select') && lower.includes('where') &&
-        (line.includes('+') || lower.includes('username') || lower.includes('input'))) {
+    // ── var au lieu de let/const ───────────────────────────────────
+    // ✅ NOUVEAU : détecte "var " même sans = après (OCR le rate souvent)
+    if (/\bvar\s+\w+/.test(line)) {
       improvements.push({
         line: i + 1,
-        message: 'Injection SQL possible — concaténation de chaîne dans une requête',
-        suggestion: 'Utilisez des requêtes préparées avec des paramètres (?)',
+        message: 'Utilisation de var (déprécié)',
+        suggestion: 'Remplacer par let ou const',
+        severity: 'warning'
+      });
+    }
+
+    // ── Variables déclarées mais inutilisées ───────────────────────
+    // ✅ NOUVEAU
+    const unusedMatch = line.match(/\b(?:const|let|var)\s+(\w+)/);
+    if (unusedMatch) {
+      const varName = unusedMatch[1];
+      const usedElsewhere = lines.some((l, j) => j !== i && l.includes(varName));
+      if (!usedElsewhere) {
+        codeSmells.push({
+          line: i + 1,
+          message: `Variable '${varName}' déclarée mais jamais utilisée`,
+          severity: 'warning'
+        });
+      }
+    }
+
+    // ── Trop de paramètres ─────────────────────────────────────────
+    // ✅ NOUVEAU
+    const funcMatch = line.match(/function\s+\w+\s*\(([^)]+)\)/);
+    if (funcMatch) {
+      const params = funcMatch[1].split(',').length;
+      if (params > 4) {
+        improvements.push({
+          line: i + 1,
+          message: `Fonction avec ${params} paramètres (trop)`,
+          suggestion: 'Regrouper les paramètres dans un objet',
+          severity: 'warning'
+        });
+      }
+    }
+
+    // ── console.log d'une variable non définie ─────────────────────
+    // ✅ NOUVEAU : détecte undefinedVariable / variables inconnues
+    const consoleMatch = line.match(/console\s*\.\s*log\s*\(\s*(\w+)\s*\)/);
+    if (consoleMatch) {
+      const loggedVar = consoleMatch[1];
+      const isDeclared = lines.some(l =>
+        new RegExp(`\\b(?:const|let|var|function)\\s+${loggedVar}\\b`).test(l)
+      );
+      if (!isDeclared && loggedVar !== 'result' && loggedVar.length > 3) {
+        improvements.push({
+          line: i + 1,
+          message: `console.log d'une variable non déclarée : '${loggedVar}'`,
+          suggestion: 'Vérifiez que la variable est bien définie',
+          severity: 'error'
+        });
+      }
+    }
+
+    // ── Imbrication excessive ──────────────────────────────────────
+    // ✅ NOUVEAU
+    const depth = (line.match(/if\s*\(/g) || []).length;
+    if (depth >= 3) {
+      codeSmells.push({
+        line: i + 1,
+        message: 'Imbrication de conditions trop profonde',
+        severity: 'warning'
+      });
+    }
+
+    // ── SQL injection ──────────────────────────────────────────────
+    if (lower.includes('select') && lower.includes('where') &&
+        (line.includes('+') || lower.includes('input'))) {
+      improvements.push({
+        line: i + 1,
+        message: 'Injection SQL possible',
+        suggestion: 'Utilisez des requêtes préparées',
         severity: 'error'
       });
     }
 
+    // ── Command injection ──────────────────────────────────────────
     if ((lower.includes('os.system') || lower.includes('os system')) &&
-        (line.includes('+') || line.includes('filename') || line.includes('input'))) {
+        (line.includes('+') || line.includes('filename'))) {
       improvements.push({
         line: i + 1,
         message: 'Injection de commande possible avec os.system()',
-        suggestion: 'Utilisez subprocess.run() avec une liste d\'arguments',
+        suggestion: "Utilisez subprocess.run() avec une liste d'arguments",
         severity: 'error'
       });
     }
 
+    // ── bare except / print ───────────────────────────────────────
     if (/except\s*:/.test(line)) {
       codeSmells.push({ line: i + 1, message: 'Exception générique (bare except)', severity: 'warning' });
     }
@@ -114,9 +212,13 @@ function analyzeCodeLocally(code, language) {
     }
   });
 
+  // ── Score réaliste ─────────────────────────────────────────────
   const errorCount   = improvements.filter(i => i.severity === 'error').length;
   const warningCount = improvements.filter(i => i.severity === 'warning').length;
-  const score = Math.max(0, 100 - errorCount * 20 - warningCount * 5 - codeSmells.length * 3);
+  
+  // ✅ CORRECTION : pénalités plus fortes pour avoir un score réaliste
+  const score = Math.max(0, 100 - errorCount * 25 - warningCount * 10 - codeSmells.length * 5);
+  
   const summary = improvements.length > 0
     ? `${improvements.length} problème(s) détecté(s) : ${improvements.map(i => i.message).join(', ')}`
     : 'Aucun problème détecté (analyse locale)';
