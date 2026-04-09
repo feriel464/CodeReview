@@ -3,25 +3,26 @@ import {
   Upload, Code, CheckCircle, AlertCircle, FileText, Zap, Shield, TrendingUp,
   ArrowRight, Sparkles, Terminal, FileCode, Bug, BookOpen, Clock, Users,
   Image as ImageIcon, FileUp, Keyboard, Globe, ChevronDown, X, Menu,
-  LogOut, User, LayoutDashboard, Settings, ShieldAlert, Lock, AlertTriangle
+  LogOut, User, LayoutDashboard, Settings, ShieldAlert, Lock, AlertTriangle,
+  Copy, Check, WandSparkles
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../src/hooks/useAuth';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL          = import.meta.env.VITE_API_URL          || 'http://localhost:5000/api';
 const SECURITY_API_URL = import.meta.env.VITE_SECURITY_API_URL || 'http://localhost:5001';
 
 const INITIAL_RESULT = {
-  qualityScore: 0,
-  improvements: [],
-  codeSmells: [],
-  documentation: { coverage: 0, missingDocs: [] },
-  metrics: {},
+  qualityScore:  0,
+  improvements:  [],
+  codeSmells:    [],
+  documentation: { coverage: null, missingDocs: [] },
+  metrics:       {},
   vulnerabilities: [],
 };
 
-// ─── Mapping sévérité depuis ton backend FastAPI ──────────────────────────────
+// ─── Mapping sévérité ─────────────────────────────────────────────────────────
 const SEVERITY_MAP = {
   none:     'info',
   low:      'low',
@@ -30,17 +31,15 @@ const SEVERITY_MAP = {
   critical: 'critical',
 };
 
-// CWE par type de vulnérabilité
 const CWE_MAP = {
-  sql_injection:      'CWE-89',
-  xss:                'CWE-79',
-  exposed_secret:     'CWE-798',
-  command_injection:  'CWE-78',
-  path_traversal:     'CWE-22',
-  safe:               null,
+  sql_injection:     'CWE-89',
+  xss:               'CWE-79',
+  exposed_secret:    'CWE-798',
+  command_injection: 'CWE-78',
+  path_traversal:    'CWE-22',
+  safe:              null,
 };
 
-// Titres lisibles
 const TYPE_LABELS = {
   sql_injection:     'SQL Injection',
   xss:               'Cross-Site Scripting (XSS)',
@@ -50,31 +49,28 @@ const TYPE_LABELS = {
   safe:              'Aucune vulnérabilité',
 };
 
-// Corrections suggérées par type
 const FIX_MAP = {
   sql_injection:     'Utilisez des requêtes préparées (parameterized queries) avec des placeholders `?` au lieu de concaténer les variables directement dans la requête SQL.',
-  xss:               'Échappez toujours les données utilisateur avant de les insérer dans le DOM. Utilisez `textContent` au lieu de `innerHTML`, ou une bibliothèque de sanitisation.',
-  exposed_secret:    'Ne stockez jamais de secrets dans le code source. Utilisez des variables d\'environnement (.env) ou un gestionnaire de secrets (Vault, AWS Secrets Manager).',
-  command_injection: 'Évitez `shell=True` avec des entrées utilisateur. Utilisez `subprocess.run()` avec une liste d\'arguments, ou validez strictement les entrées.',
-  path_traversal:    'Validez et normalisez les chemins de fichiers. Utilisez `os.path.realpath()` et vérifiez que le chemin est dans le répertoire autorisé.',
+  xss:               "Échappez toujours les données utilisateur avant de les insérer dans le DOM. Utilisez `textContent` au lieu de `innerHTML`, ou une bibliothèque de sanitisation.",
+  exposed_secret:    "Ne stockez jamais de secrets dans le code source. Utilisez des variables d'environnement (.env) ou un gestionnaire de secrets (Vault, AWS Secrets Manager).",
+  command_injection: "Évitez `shell=True` avec des entrées utilisateur. Utilisez `subprocess.run()` avec une liste d'arguments, ou validez strictement les entrées.",
+  path_traversal:    "Validez et normalisez les chemins de fichiers. Utilisez `os.path.realpath()` et vérifiez que le chemin est dans le répertoire autorisé.",
 };
 
-// ─── Analyse de vulnérabilité via TON backend FastAPI (localhost:5001) ─────────
+// ─── Analyse vulnérabilités via FastAPI ───────────────────────────────────────
 async function analyzeVulnerabilities(code, language) {
   try {
     const response = await fetch(`${SECURITY_API_URL}/analyze`, {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, language }),
+      body:    JSON.stringify({ code, language }),
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (!data.success) throw new Error('API returned success=false');
 
-    const isVulnerable = data.vulnerable;
-
-    // ── Construire la liste depuis data.vulnerabilities[] ──
+    const isVulnerable    = data.vulnerable;
     const vulnerabilities = (data.vulnerabilities || []).map((vuln, i) => {
       const severity = SEVERITY_MAP[vuln.severity] || 'info';
       return {
@@ -90,15 +86,11 @@ async function analyzeVulnerabilities(code, language) {
       };
     });
 
-    // ── Score de sécurité basé sur la pire vulnérabilité ──
     let securityScore = 100;
     if (isVulnerable && vulnerabilities.length > 0) {
       const severityPenalty = { critical: 60, high: 45, medium: 30, low: 15, info: 5 };
-      // Prendre la vulnérabilité la plus grave
-      const worstPenalty = Math.max(
-        ...vulnerabilities.map(v => severityPenalty[v.severity] || 0)
-      );
-      const avgConfidence = vulnerabilities.reduce((sum, v) => sum + v.confidence, 0) / vulnerabilities.length;
+      const worstPenalty    = Math.max(...vulnerabilities.map(v => severityPenalty[v.severity] || 0));
+      const avgConfidence   = vulnerabilities.reduce((sum, v) => sum + v.confidence, 0) / vulnerabilities.length;
       securityScore = Math.max(0, Math.round(100 - worstPenalty - (avgConfidence * 0.2)));
     }
 
@@ -115,21 +107,24 @@ async function analyzeVulnerabilities(code, language) {
     console.error('Vuln analysis error:', e);
     return {
       vulnerabilities: [],
-      securityScore: null,
-      summary: 'Service de sécurité indisponible (localhost:5001)',
-      error: e.message,
+      securityScore:   null,
+      summary:         'Service de sécurité indisponible (localhost:5001)',
+      error:           e.message,
     };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  COMPOSANT PRINCIPAL
+// ─────────────────────────────────────────────────────────────────────────────
 export default function CodeReview() {
   const { user: authUser, logout } = useAuth();
-  const navigate = useNavigate();
+  const navigate                   = useNavigate();
   const [localLoggedOut, setLocalLoggedOut] = useState(false);
-  const user = localLoggedOut ? null : authUser;
+  const user      = localLoggedOut ? null : authUser;
   const resultsRef  = useRef(null);
   const userMenuRef = useRef(null);
-
-  const isLoggedIn = !!user;
+  const isLoggedIn  = !!user;
 
   useEffect(() => {
     if (authUser) setLocalLoggedOut(false);
@@ -145,6 +140,7 @@ export default function CodeReview() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ── UI states ──────────────────────────────────────────────────────────────
   const [scrollY, setScrollY]                       = useState(0);
   const [showMobileMenu, setShowMobileMenu]         = useState(false);
   const [showUserMenu, setShowUserMenu]             = useState(false);
@@ -152,6 +148,7 @@ export default function CodeReview() {
   const [floatingElements, setFloatingElements]     = useState([]);
   const [language, setLanguage]                     = useState('fr');
 
+  // ── Analyse states ─────────────────────────────────────────────────────────
   const [inputMethod, setInputMethod]               = useState('code');
   const [programmingLanguage, setProgrammingLanguage] = useState('python');
   const [showProgrammingLangMenu, setShowProgrammingLangMenu] = useState(false);
@@ -160,29 +157,39 @@ export default function CodeReview() {
   const [showResults, setShowResults]               = useState(false);
   const [analysisResult, setAnalysisResult]         = useState(INITIAL_RESULT);
   const [activeTab, setActiveTab]                   = useState('improvements');
-
-  // Vulnerability state
-  const [isAnalyzingVulns, setIsAnalyzingVulns]     = useState(false);
   const [vulnResult, setVulnResult]                 = useState(null);
 
+  // ── Image states ───────────────────────────────────────────────────────────
+  const [selectedImage, setSelectedImage]           = useState(null);
+  const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+  const [imageAnalysisData, setImageAnalysisData]   = useState(null);
+
+  // ── Data states ────────────────────────────────────────────────────────────
   const [programmingLanguages, setProgrammingLanguages] = useState([]);
   const [languages, setLanguages]                   = useState([]);
   const [translations, setTranslations]             = useState({});
   const [loading, setLoading]                       = useState(true);
   const [guestStatus, setGuestStatus]               = useState(null);
-const [selectedImage, setSelectedImage] = useState(null);
-const [selectedImagePreview, setSelectedImagePreview] = useState(null);
-const [imageAnalysisData, setImageAnalysisData] = useState(null);
+
+  // ── Apply corrections states  ──────────────────────────────────────────────
+  const [showCorrectionModal, setShowCorrectionModal]   = useState(false);
+  const [isApplyingCorrections, setIsApplyingCorrections] = useState(false);
+  const [correctionResult, setCorrectionResult]         = useState(null);
+  const [correctionTab, setCorrectionTab]               = useState('code');
+  const [codeCopied, setCodeCopied]                     = useState(false);
+  const [docResult, setDocResult]       = useState(null);
+  const [isLoadingDoc, setIsLoadingDoc] = useState(false);
+  // ── Init ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     loadAll();
     const onScroll = () => setScrollY(window.scrollY);
     window.addEventListener('scroll', onScroll);
     const els = Array.from({ length: 15 }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 60 + 20,
-      delay: Math.random() * 5,
+      id:       i,
+      x:        Math.random() * 100,
+      y:        Math.random() * 100,
+      size:     Math.random() * 60 + 20,
+      delay:    Math.random() * 5,
       duration: Math.random() * 20 + 15,
     }));
     setFloatingElements(els);
@@ -250,6 +257,7 @@ const [imageAnalysisData, setImageAnalysisData] = useState(null);
     } catch { }
   }
 
+  // ── Analyse principale ─────────────────────────────────────────────────────
   const handleAnalyze = async () => {
     if (!isLoggedIn && (inputMethod === 'upload' || inputMethod === 'image')) {
       alert('⚠️ Connectez-vous pour télécharger des fichiers.');
@@ -266,10 +274,9 @@ const [imageAnalysisData, setImageAnalysisData] = useState(null);
       setShowResults(false);
       setVulnResult(null);
 
-      const token = localStorage.getItem('token');
+      const token   = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-      // Lancer les deux analyses en parallèle
       const [response, vulnData] = await Promise.all([
         axios.post(
           `${API_URL}/analyze`,
@@ -282,9 +289,9 @@ const [imageAnalysisData, setImageAnalysisData] = useState(null);
       if (response.data.success) {
         const data = response.data.data;
         setAnalysisResult({
-          qualityScore: data.qualityScore ?? 0,
-          improvements: Array.isArray(data.improvements) ? data.improvements : [],
-          codeSmells:   Array.isArray(data.codeSmells)   ? data.codeSmells   : [],
+          qualityScore:  data.qualityScore ?? 0,
+          improvements:  Array.isArray(data.improvements) ? data.improvements : [],
+          codeSmells:    Array.isArray(data.codeSmells)   ? data.codeSmells   : [],
           documentation: {
             coverage:    data.documentation?.coverage    ?? 0,
             missingDocs: Array.isArray(data.documentation?.missingDocs) ? data.documentation.missingDocs : [],
@@ -292,11 +299,21 @@ const [imageAnalysisData, setImageAnalysisData] = useState(null);
           metrics: data.metrics || {},
         });
         setVulnResult(vulnData);
-
+// Lance la doc en arrière-plan (non bloquant)
+setIsLoadingDoc(true);
+setDocResult(null);
+axios.post(
+  `${API_URL}/analyze/document`,
+  { code: codeInput, language: programmingLanguage },
+  { headers }
+).then(r => {
+  if (r.data.success) setDocResult(r.data.functions);
+}).catch(console.error)
+  .finally(() => setIsLoadingDoc(false));
         if (!isLoggedIn && response.data.remainingAnalyses !== undefined) {
           setGuestStatus(prev => ({
             ...prev,
-            remaining:      response.data.remainingAnalyses,
+            remaining:       response.data.remainingAnalyses,
             hasReachedLimit: response.data.remainingAnalyses === 0,
           }));
         }
@@ -325,20 +342,98 @@ const [imageAnalysisData, setImageAnalysisData] = useState(null);
     }
   };
 
-const handleReset = () => {
-  setShowResults(false);
-  setAnalysisResult(INITIAL_RESULT);
-  setVulnResult(null);
-  setCodeInput('');
-  setActiveTab('improvements');
-  
-  // Nettoyer l'image
-  setSelectedImage(null);
-  setSelectedImagePreview(null);
-  setImageAnalysisData(null);
-  
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-};
+  // ── Apply corrections ──────────────────────────────────────────────────────
+  const handleApplyCorrections = async () => {
+    if (!codeInput.trim()) {
+      alert('⚠️ Aucun code à corriger.');
+      return;
+    }
+
+    const totalProblems =
+      (analysisResult.improvements?.length  || 0) +
+      (analysisResult.codeSmells?.length    || 0) +
+      (vulnResult?.vulnerabilities?.length  || 0);
+
+    if (totalProblems === 0) {
+      alert('✅ Aucun problème détecté — votre code est déjà propre !');
+      return;
+    }
+
+    try {
+      setIsApplyingCorrections(true);
+      setShowCorrectionModal(true);
+      setCorrectionResult(null);
+      setCorrectionTab('code');
+      setCodeCopied(false);
+
+      const token   = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const response = await axios.post(
+        `${API_URL}/analyze/apply-corrections`,
+        {
+          code:            codeInput,
+          language:        programmingLanguage,
+          improvements:    analysisResult.improvements    || [],
+          codeSmells:      analysisResult.codeSmells      || [],
+          vulnerabilities: vulnResult?.vulnerabilities    || [],
+        },
+        { headers, timeout: 60000 }
+      );
+
+      if (response.data.success) {
+        setCorrectionResult(response.data);
+      }
+
+    } catch (error) {
+      console.error('❌ applyCorrections:', error);
+      setShowCorrectionModal(false);
+
+      if (error.response?.status === 429) {
+        alert('⏳ Limite  atteinte, réessayez dans un moment.');
+      } else {
+        alert(`❌ ${error.response?.data?.message || "Erreur lors de l'application des corrections"}`);
+      }
+    } finally {
+      setIsApplyingCorrections(false);
+    }
+  };
+
+  const handleReplaceCode = () => {
+    if (!correctionResult?.correctedCode) return;
+    setCodeInput(correctionResult.correctedCode);
+    setShowCorrectionModal(false);
+    setShowResults(false);
+    setAnalysisResult(INITIAL_RESULT);
+    setVulnResult(null);
+    setCorrectionResult(null);
+    setActiveTab('improvements');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCopyCode = () => {
+    if (!correctionResult?.correctedCode) return;
+    navigator.clipboard.writeText(correctionResult.correctedCode).then(() => {
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    });
+  };
+
+  // ── Reset ──────────────────────────────────────────────────────────────────
+  const handleReset = () => {
+    setShowResults(false);
+    setAnalysisResult(INITIAL_RESULT);
+    setVulnResult(null);
+    setCodeInput('');
+    setActiveTab('improvements');
+    setSelectedImage(null);
+    setSelectedImagePreview(null);
+    setImageAnalysisData(null);
+    setCorrectionResult(null);
+    setDocResult(null);
+    setIsLoadingDoc(false); 
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleLogout = () => {
     setShowUserMenu(false);
@@ -352,205 +447,173 @@ const handleReset = () => {
     setCodeInput('');
     checkGuestStatus();
   };
-// Fonction pour gérer la sélection d'image
-const handleImageUpload = (e) => {
-  const file = e.target.files[0];
-  if (file) {
-    if (!file.type.startsWith('image/')) {
-      alert('⚠️ Veuillez sélectionner une image valide');
-      return;
+
+  // ── Image ──────────────────────────────────────────────────────────────────
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) { alert('⚠️ Veuillez sélectionner une image valide'); return; }
+      if (file.size > 10 * 1024 * 1024)   { alert("⚠️ L'image ne doit pas dépasser 10 MB"); return; }
+      setSelectedImage(file);
+      setSelectedImagePreview(URL.createObjectURL(file));
     }
-    if (file.size > 10 * 1024 * 1024) {
-      alert('⚠️ L\'image ne doit pas dépasser 10 MB');
-      return;
-    }
-    setSelectedImage(file);
-    setSelectedImagePreview(URL.createObjectURL(file));
-  }
-};
+  };
 
-// Fonction pour analyser l'image
-const handleAnalyzeImage = async () => {
-  if (!selectedImage) {
-    alert('⚠️ Veuillez sélectionner une image');
-    return;
-  }
+  const handleAnalyzeImage = async () => {
+    if (!selectedImage) { alert('⚠️ Veuillez sélectionner une image'); return; }
+    if (!isLoggedIn)    { alert('⚠️ Connectez-vous pour analyser des images'); navigate('/login'); return; }
 
-  if (!isLoggedIn) {
-    alert('⚠️ Connectez-vous pour analyser des images');
-    navigate('/login');
-    return;
-  }
+    try {
+      setIsAnalyzing(true);
+      setShowResults(false);
+      setVulnResult(null);
+      setImageAnalysisData(null);
 
-  try {
-    setIsAnalyzing(true);
-    setShowResults(false);
-    setVulnResult(null);
-    setImageAnalysisData(null);
+      const formData = new FormData();
+      formData.append('image', selectedImage);
+      formData.append('language', programmingLanguage);
 
-    const formData = new FormData();
-    formData.append('image', selectedImage);
-    formData.append('language', programmingLanguage);
+      const token    = localStorage.getItem('token');
+      const response = await axios.post(
+        `${API_URL}/image/analyze-image`,
+        formData,
+        { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
+      );
 
-    const token = localStorage.getItem('token');
-    console.log('📸 Envoi de l\'image pour analyse...');
+      if (response.data.success) {
+        const data = response.data;
 
-    const response = await axios.post(
-      `${API_URL}/image/analyze-image`,
-      formData,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data'
-        },
-        timeout: 120000
+        setImageAnalysisData({
+          imageUrl:      data.imageUrl,
+          ocrConfidence: data.ocrConfidence,
+          extractedCode: data.extractedCode,
+          correctedCode: data.correctedCode
+        });
+
+        setCodeInput(data.correctedCode);
+
+        setAnalysisResult({
+          qualityScore:  data.analysis.score,
+          improvements:  data.analysis.improvements || [],
+          codeSmells:    data.analysis.codeSmells   || [],
+          documentation: { coverage: null, missingDocs: [] },
+          metrics:       {},
+          summary:       data.analysis.summary
+        });
+// Lance la doc en arrière-plan avec le code extrait par OCR
+        setIsLoadingDoc(true);
+        setDocResult(null);
+        axios.post(
+          `${API_URL}/analyze/document`,
+          { code: data.correctedCode, language: programmingLanguage },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        ).then(r => {
+          if (r.data.success) setDocResult(r.data.functions);
+        }).catch(console.error)
+          .finally(() => setIsLoadingDoc(false));
+        const secData         = data.analysis.security;
+        const allImprovements = data.analysis.improvements || [];
+
+        const vulnsFromML = (secData?.vulnerabilities || []).map((v, i) => ({
+          id:          `VULN-${String(i + 1).padStart(3, '0')}`,
+          type:        v.type,
+          severity:    SEVERITY_MAP[v.severity] || 'info',
+          title:       TYPE_LABELS[v.type] || v.type,
+          description: v.vulnerable_lines?.[0]?.explanation || TYPE_LABELS[v.type] || v.type,
+          fix:         FIX_MAP[v.type] || 'Corrigez la vulnérabilité.',
+          cwe:         CWE_MAP[v.type] || null,
+          confidence:  v.confidence,
+          lines:       v.vulnerable_lines || [],
+        }));
+
+        const typeMap = {
+          'SQL':      { type: 'sql_injection',    severity: 'critical' },
+          'Secret':   { type: 'exposed_secret',   severity: 'high'     },
+          'commande': { type: 'command_injection', severity: 'critical' },
+          'XSS':      { type: 'xss',              severity: 'high'     },
+        };
+
+        const vulnsFromLocal = vulnsFromML.length === 0
+          ? allImprovements
+              .filter(imp => imp.severity === 'error')
+              .map((imp, i) => {
+                const matched = Object.entries(typeMap).find(([k]) => imp.message.includes(k));
+                const { type, severity } = matched?.[1] ?? { type: 'exposed_secret', severity: 'medium' };
+                return {
+                  id:          `VULN-${String(i + 1).padStart(3, '0')}`,
+                  type,
+                  severity,
+                  title:       TYPE_LABELS[type] || type,
+                  description: imp.message,
+                  fix:         FIX_MAP[type] || imp.suggestion || 'Corrigez la vulnérabilité.',
+                  cwe:         CWE_MAP[type] || null,
+                  confidence:  85,
+                  lines: [{
+                    line:        imp.line,
+                    code:        (data.correctedCode || '').split('\n')[(imp.line || 1) - 1] || '',
+                    explanation: imp.message,
+                  }],
+                };
+              })
+          : [];
+
+        const finalVulns = vulnsFromML.length > 0 ? vulnsFromML : vulnsFromLocal;
+
+        setVulnResult({
+          vulnerabilities: finalVulns,
+          securityScore:   finalVulns.length > 0 ? Math.max(0, 100 - finalVulns.length * 25) : 100,
+          summary:         finalVulns.length > 0
+            ? `${finalVulns.length} vulnérabilité(s) détectée(s) : ${finalVulns.map(v => v.title).join(', ')}`
+            : 'Aucune vulnérabilité détectée',
+        });
+          
+
+
+
+        setTimeout(() => {
+          setIsAnalyzing(false);
+          setShowResults(true);
+          setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+        }, 2000);
       }
-    );
 
-    if (response.data.success) {
-      const data = response.data;
-
-      console.log('✅ Analyse d\'image réussie');
-      console.log('📊 OCR Confidence:', data.ocrConfidence + '%');
-      console.log('📝 Code extrait:', data.extractedCode.substring(0, 100) + '...');
-
-      // ── 1. Données image ──────────────────────────────
-      setImageAnalysisData({
-        imageUrl:      data.imageUrl,
-        ocrConfidence: data.ocrConfidence,
-        extractedCode: data.extractedCode,
-        correctedCode: data.correctedCode
-      });
-
-      // ── 2. Code dans la textarea ──────────────────────
-      setCodeInput(data.correctedCode);
-
-      // ── 3. Résultats qualité ──────────────────────────
-      setAnalysisResult({
-        qualityScore:  data.analysis.score,
-        improvements:  data.analysis.improvements || [],
-        codeSmells:    data.analysis.codeSmells   || [],
-        documentation: { coverage: 0, missingDocs: [] },
-        metrics:       {},
-        summary:       data.analysis.summary
-      });
-
-      // ── 4. Résultats sécurité ─────────────────────────
-      const secData        = data.analysis.security;
-      const allImprovements = data.analysis.improvements || [];
-
-      // Vulnérabilités depuis le ML service
-      const vulnsFromML = (secData?.vulnerabilities || []).map((v, i) => ({
-        id:          `VULN-${String(i + 1).padStart(3, '0')}`,
-        type:        v.type,
-        severity:    SEVERITY_MAP[v.severity] || 'info',
-        title:       TYPE_LABELS[v.type] || v.type,
-        description: v.vulnerable_lines?.[0]?.explanation || TYPE_LABELS[v.type] || v.type,
-        fix:         FIX_MAP[v.type] || 'Corrigez la vulnérabilité.',
-        cwe:         CWE_MAP[v.type] || null,
-        confidence:  v.confidence,
-        lines:       v.vulnerable_lines || [],
-      }));
-
-      // Si ML vide → construire depuis les improvements "error"
-      const typeMap = {
-        'SQL':      { type: 'sql_injection',     severity: 'critical' },
-        'Secret':   { type: 'exposed_secret',    severity: 'high'     },
-        'commande': { type: 'command_injection',  severity: 'critical' },
-        'XSS':      { type: 'xss',               severity: 'high'     },
-      };
-
-      const vulnsFromLocal = vulnsFromML.length === 0
-        ? allImprovements
-            .filter(imp => imp.severity === 'error')
-            .map((imp, i) => {
-              const matched = Object.entries(typeMap)
-                .find(([k]) => imp.message.includes(k));
-              const { type, severity } = matched?.[1]
-                ?? { type: 'exposed_secret', severity: 'medium' };
-              return {
-                id:          `VULN-${String(i + 1).padStart(3, '0')}`,
-                type,
-                severity,
-                title:       TYPE_LABELS[type] || type,
-                description: imp.message,
-                fix:         FIX_MAP[type] || imp.suggestion || 'Corrigez la vulnérabilité.',
-                cwe:         CWE_MAP[type] || null,
-                confidence:  85,
-                lines: [{
-                  line:        imp.line,
-                  code:        (data.correctedCode || '').split('\n')[(imp.line || 1) - 1] || '',
-                  explanation: imp.message,
-                }],
-              };
-            })
-        : [];
-
-      const finalVulns = vulnsFromML.length > 0 ? vulnsFromML : vulnsFromLocal;
-      const vulnCount  = finalVulns.length;
-
-      setVulnResult({
-        vulnerabilities: finalVulns,
-        securityScore:   vulnCount > 0
-          ? Math.max(0, 100 - vulnCount * 25)
-          : 100,
-        summary: vulnCount > 0
-          ? `${vulnCount} vulnérabilité(s) détectée(s) : ${finalVulns.map(v => v.title).join(', ')}`
-          : 'Aucune vulnérabilité détectée',
-      });
-
-      // ── 5. Affichage résultats ────────────────────────
-      setTimeout(() => {
-        setIsAnalyzing(false);
-        setShowResults(true);
-        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-      }, 2000);
+    } catch (error) {
+      setIsAnalyzing(false);
+      if      (error.response?.status === 400) alert(`❌ ${error.response.data.message || 'Image invalide ou aucun code détecté'}`);
+      else if (error.response?.status === 503) alert('❌ Service OCR indisponible. Assurez-vous que le service Python tourne sur le port 5002.');
+      else                                     alert("❌ Erreur lors de l'analyse de l'image");
     }
+  };
 
-  } catch (error) {
-    setIsAnalyzing(false);
-    console.error('❌ Erreur analyse image:', error);
-
-    if (error.response?.status === 400) {
-      alert(`❌ ${error.response.data.message || 'Image invalide ou aucun code détecté'}`);
-    } else if (error.response?.status === 503) {
-      alert('❌ Service OCR indisponible. Assurez-vous que le service Python tourne sur le port 5002.');
-    } else {
-      alert('❌ Erreur lors de l\'analyse de l\'image');
-    }
-  }
-};
-  // ─── Helpers ─────────────────────────────────────────────
-  const getScoreColor = (s) =>
-    s >= 80 ? 'from-green-500 to-emerald-500'
-    : s >= 60 ? 'from-yellow-500 to-orange-500'
-    : 'from-red-500 to-rose-600';
-
-  const getScoreBg = (s) =>
-    s >= 80 ? 'from-green-50 via-emerald-50 to-teal-50 border-green-200'
-    : s >= 60 ? 'from-yellow-50 via-orange-50 to-amber-50 border-orange-200'
-    : 'from-red-50 via-rose-50 to-pink-50 border-red-200';
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const getScoreColor  = (s) => s >= 80 ? 'from-green-500 to-emerald-500' : s >= 60 ? 'from-yellow-500 to-orange-500' : 'from-red-500 to-rose-600';
+  const getScoreBg     = (s) => s >= 80 ? 'from-green-50 via-emerald-50 to-teal-50 border-green-200' : s >= 60 ? 'from-yellow-50 via-orange-50 to-amber-50 border-orange-200' : 'from-red-50 via-rose-50 to-pink-50 border-red-200';
 
   const getSeverityConfig = (severity) => {
     switch (severity) {
-      case 'critical': return { color: 'bg-red-100 text-red-800 border-red-300', dot: 'bg-red-500', badge: 'from-red-500 to-rose-600', emoji: '🔴', label: 'Critique' };
-      case 'high':     return { color: 'bg-orange-100 text-orange-800 border-orange-300', dot: 'bg-orange-500', badge: 'from-orange-500 to-red-500', emoji: '🟠', label: 'Élevé' };
-      case 'medium':   return { color: 'bg-yellow-100 text-yellow-800 border-yellow-300', dot: 'bg-yellow-500', badge: 'from-yellow-500 to-orange-400', emoji: '🟡', label: 'Moyen' };
-      case 'low':      return { color: 'bg-blue-100 text-blue-800 border-blue-300', dot: 'bg-blue-400', badge: 'from-blue-400 to-cyan-500', emoji: '🔵', label: 'Faible' };
-      default:         return { color: 'bg-gray-100 text-gray-700 border-gray-300', dot: 'bg-gray-400', badge: 'from-gray-400 to-gray-500', emoji: '⚪', label: 'Info' };
+      case 'critical': return { color: 'bg-red-100 text-red-800 border-red-300',       dot: 'bg-red-500',    badge: 'from-red-500 to-rose-600',        emoji: '🔴', label: 'Critique' };
+      case 'high':     return { color: 'bg-orange-100 text-orange-800 border-orange-300', dot: 'bg-orange-500', badge: 'from-orange-500 to-red-500',      emoji: '🟠', label: 'Élevé' };
+      case 'medium':   return { color: 'bg-yellow-100 text-yellow-800 border-yellow-300', dot: 'bg-yellow-500', badge: 'from-yellow-500 to-orange-400',   emoji: '🟡', label: 'Moyen' };
+      case 'low':      return { color: 'bg-blue-100 text-blue-800 border-blue-300',    dot: 'bg-blue-400',   badge: 'from-blue-400 to-cyan-500',          emoji: '🔵', label: 'Faible' };
+      default:         return { color: 'bg-gray-100 text-gray-700 border-gray-300',    dot: 'bg-gray-400',   badge: 'from-gray-400 to-gray-500',          emoji: '⚪', label: 'Info' };
     }
   };
 
   const getSecurityScoreColor = (score) =>
-    score === null ? 'from-gray-400 to-gray-500'
-    : score >= 80 ? 'from-green-500 to-emerald-500'
-    : score >= 50 ? 'from-yellow-500 to-orange-400'
+    score === null  ? 'from-gray-400 to-gray-500'
+    : score >= 80   ? 'from-green-500 to-emerald-500'
+    : score >= 50   ? 'from-yellow-500 to-orange-400'
     : 'from-red-500 to-rose-600';
 
-  const vulnCount = vulnResult?.vulnerabilities?.length || 0;
+  const vulnCount     = vulnResult?.vulnerabilities?.length || 0;
   const criticalCount = vulnResult?.vulnerabilities?.filter(v => v.severity === 'critical' || v.severity === 'high').length || 0;
 
-  const t = translations[language] || defaultTranslations[language] || defaultTranslations.fr;
+  const totalProblemsCount =
+    (analysisResult.improvements?.length || 0) +
+    (analysisResult.codeSmells?.length   || 0) +
+    (vulnResult?.vulnerabilities?.length || 0);
+
+  const t           = translations[language] || defaultTranslations[language] || defaultTranslations.fr;
   const currentLang = programmingLanguages.find(l => l.code === programmingLanguage);
 
   if (loading) {
@@ -573,9 +636,7 @@ const handleAnalyzeImage = async () => {
           <div key={el.id} className="absolute rounded-full opacity-10 animate-float-slow" style={{
             left: `${el.x}%`, top: `${el.y}%`,
             width: `${el.size}px`, height: `${el.size}px`,
-            background: `linear-gradient(135deg,
-              ${['#8B5CF6','#EC4899','#3B82F6','#10B981','#F59E0B'][el.id % 5]},
-              ${['#A78BFA','#F472B6','#60A5FA','#34D399','#FBBF24'][el.id % 5]})`,
+            background: `linear-gradient(135deg, ${['#8B5CF6','#EC4899','#3B82F6','#10B981','#F59E0B'][el.id % 5]}, ${['#A78BFA','#F472B6','#60A5FA','#34D399','#FBBF24'][el.id % 5]})`,
             animationDelay: `${el.delay}s`, animationDuration: `${el.duration}s`,
           }} />
         ))}
@@ -754,11 +815,12 @@ const handleAnalyzeImage = async () => {
           </div>
 
           <div className="max-w-5xl mx-auto">
+            {/* ── Sélection méthode ── */}
             <div className="flex flex-wrap justify-center gap-2 sm:gap-4 mb-6 sm:mb-8">
               {[
-                { id: 'code',   icon: Keyboard,   label: t.pasteCode,   color: 'pink'   },
-                { id: 'upload', icon: FileUp,      label: t.uploadCode,  color: 'purple' },
-                { id: 'image',  icon: ImageIcon,   label: t.uploadImage, color: 'blue'   },
+                { id: 'code',   icon: Keyboard,  label: t.pasteCode,   color: 'pink'   },
+                { id: 'upload', icon: FileUp,     label: t.uploadCode,  color: 'purple' },
+                { id: 'image',  icon: ImageIcon,  label: t.uploadImage, color: 'blue'   },
               ].map(method => (
                 <button key={method.id} onClick={() => setInputMethod(method.id)}
                   className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all transform hover:scale-105 ${
@@ -775,6 +837,8 @@ const handleAnalyzeImage = async () => {
             {/* ── Zone de saisie ── */}
             {!showResults && !isAnalyzing && (
               <div className="animate-fade-in">
+
+                {/* Coller le code */}
                 {inputMethod === 'code' && (
                   <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl border-2 border-pink-300 p-4 sm:p-8 shadow-xl">
                     <div className="mb-4">
@@ -833,183 +897,158 @@ const handleAnalyzeImage = async () => {
                   </div>
                 )}
 
+                {/* Upload PDF */}
                 {inputMethod === 'upload' && (
-  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-purple-300 p-16 text-center hover:border-purple-500 transition-all">
+                  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-purple-300 p-16 text-center hover:border-purple-500 transition-all">
+                    <input type="file" accept=".pdf" id="pdf-upload" className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
 
-    <input
-      type="file"
-      accept=".pdf"
-      id="pdf-upload"
-      className="hidden"
-      onChange={async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+                        setIsAnalyzing(true);
+                        setShowResults(false);
+                        setVulnResult(null);
 
-        setIsAnalyzing(true);
-        setShowResults(false);
-        setVulnResult(null);
+                        try {
+                          const formData = new FormData();
+                          formData.append('pdf', file);
+                          formData.append('language', programmingLanguage);
 
-        try {
-          const formData = new FormData();
-          formData.append('pdf', file);
-          formData.append('language', programmingLanguage);
+                          const token   = localStorage.getItem('token');
+                          const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-          const token = localStorage.getItem('token');
-          const headers = token ? { Authorization: `Bearer ${token}` } : {};
+                          const response = await axios.post(
+                            `${API_URL}/pdf/analyze-pdf`,
+                            formData,
+                            { headers, timeout: 60000 }
+                          );
 
-          const response = await axios.post(
-            `${API_URL}/pdf/analyze-pdf`,
-            formData,
-            { headers, timeout: 60000 }
-          );
+                          if (response.data.success) {
+                            const { data, security, extractedCode, language: detectedLang } = response.data;
 
-          if (response.data.success) {
-            const { data, security, extractedCode, language: detectedLang } = response.data;
+                            setCodeInput(extractedCode);
+                            setProgrammingLanguage(detectedLang);
 
-            // Mettre à jour la textarea avec le code extrait
-            setCodeInput(extractedCode);
-            setProgrammingLanguage(detectedLang);
+                            setAnalysisResult({
+                              qualityScore:  data.qualityScore,
+                              improvements:  data.improvements,
+                              codeSmells:    data.codeSmells,
+                              documentation: data.documentation,
+                              metrics:       data.metrics,
+                            });
 
-            setAnalysisResult({
-              qualityScore:  data.qualityScore,
-              improvements:  data.improvements,
-              codeSmells:    data.codeSmells,
-              documentation: data.documentation,
-              metrics:       data.metrics,
-            });
+                            if (security?.vulnerable) {
+                              setVulnResult({
+                                vulnerabilities: (security.vulnerabilities || []).map((v, i) => ({
+                                  id:          `VULN-${String(i + 1).padStart(3, '0')}`,
+                                  type:        TYPE_LABELS[v.type] || v.type,
+                                  severity:    SEVERITY_MAP[v.severity] || 'info',
+                                  title:       TYPE_LABELS[v.type] || v.type,
+                                  description: `${v.type} — ${v.confidence}% de confiance`,
+                                  fix:         FIX_MAP[v.type] || 'Corrigez la vulnérabilité.',
+                                  cwe:         CWE_MAP[v.type] || null,
+                                  confidence:  v.confidence,
+                                  lines:       v.vulnerable_lines || [],
+                                })),
+                                securityScore: Math.max(0, 100 - 60),
+                                summary:       security.message,
+                              });
+                            } else {
+                              setVulnResult({ vulnerabilities: [], securityScore: 100, summary: 'Aucune vulnérabilité détectée' });
+                            }
 
-            // Adapter la réponse sécurité au format de ton UI
-            if (security?.vulnerable) {
-              setVulnResult({
-                vulnerabilities: (security.vulnerabilities || []).map((v, i) => ({
-                  id:          `VULN-${String(i + 1).padStart(3, '0')}`,
-                  type:        TYPE_LABELS[v.type] || v.type,
-                  severity:    SEVERITY_MAP[v.severity] || 'info',
-                  title:       TYPE_LABELS[v.type] || v.type,
-                  description: `${v.type} — ${v.confidence}% de confiance`,
-                  fix:         FIX_MAP[v.type] || 'Corrigez la vulnérabilité.',
-                  cwe:         CWE_MAP[v.type] || null,
-                  confidence:  v.confidence,
-                  lines:       v.vulnerable_lines || [],
-                })),
-                securityScore: Math.max(0, 100 - 60),
-                summary: security.message,
-              });
-            } else {
-              setVulnResult({
-                vulnerabilities: [],
-                securityScore: 100,
-                summary: 'Aucune vulnérabilité détectée',
-              });
-            }
+                            // ← AJOUTER CES LIGNES ICI :
+                            setIsLoadingDoc(true);
+                            setDocResult(null);
+                            axios.post(
+                              `${API_URL}/analyze/document`,
+                              { code: extractedCode, language: detectedLang },
+                              { headers }
+                            ).then(r => {
+                              if (r.data.success) setDocResult(r.data.functions);
+                            }).catch(console.error)
+                              .finally(() => setIsLoadingDoc(false));
 
-            setTimeout(() => {
-              setIsAnalyzing(false);
-              setShowResults(true);
-              setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-            }, 1500);
-          }
+                            setTimeout(() => {
+                              setIsAnalyzing(false);
+                              setShowResults(true);
+                              setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                            }, 1500);
+                          }
+                        } catch (error) {
+                          setIsAnalyzing(false);
+                          alert(`❌ ${error.response?.data?.message || 'Erreur analyse PDF'}`);
+                        }
+                      }}
+                    />
+                    <label htmlFor="pdf-upload" className="cursor-pointer block">
+                      <div className="mb-6 inline-block">
+                        <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
+                          <Upload className="w-12 h-12 text-purple-600" />
+                        </div>
+                      </div>
+                      <h3 className="text-2xl font-semibold text-gray-900 mb-3">Déposez votre PDF ici</h3>
+                      <p className="text-base text-gray-600 mb-6">Documentation, rapport, livre technique contenant du code</p>
+                      <span className="px-8 py-3 text-base bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl inline-block">
+                        Sélectionner un PDF
+                      </span>
+                      <p className="text-xs text-gray-500 mt-4">Max 10 MB · PDF avec texte (pas scanné)</p>
+                    </label>
+                  </div>
+                )}
 
-        } catch (error) {
-          setIsAnalyzing(false);
-          alert(`❌ ${error.response?.data?.message || 'Erreur analyse PDF'}`);
-        }
-      }}
-    />
+                {/* Upload Image */}
+                {inputMethod === 'image' && (
+                  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-blue-300 p-8 sm:p-16 text-center hover:border-blue-500 hover:bg-white hover:shadow-2xl transition-all">
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" id="image-upload" />
 
-    <label htmlFor="pdf-upload" className="cursor-pointer block">
-      <div className="mb-6 inline-block">
-        <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
-          <Upload className="w-12 h-12 text-purple-600" />
-        </div>
-      </div>
-      <h3 className="text-2xl font-semibold text-gray-900 mb-3">Déposez votre PDF ici</h3>
-      <p className="text-base text-gray-600 mb-6">
-        Documentation, rapport, livre technique contenant du code
-      </p>
-      <span className="px-8 py-3 text-base bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl inline-block">
-        Sélectionner un PDF
-      </span>
-      <p className="text-xs text-gray-500 mt-4">Max 10 MB · PDF avec texte (pas scanné)</p>
-    </label>
-  </div>
-)}
-
-              {inputMethod === 'image' && (
-  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-blue-300 p-8 sm:p-16 text-center hover:border-blue-500 hover:bg-white hover:shadow-2xl transition-all">
-    
-    <input
-      type="file"
-      accept="image/*"
-      onChange={handleImageUpload}
-      className="hidden"
-      id="image-upload"
-    />
-    
-    {!selectedImage ? (
-      <label htmlFor="image-upload" className="cursor-pointer block">
-        <div className="mb-6 inline-block">
-          <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
-            <ImageIcon className="w-12 h-12 text-blue-600 animate-pulse" />
-          </div>
-        </div>
-        <h3 className="text-2xl font-semibold text-gray-900 mb-3">{t.uploadImageHere}</h3>
-        <p className="text-base text-gray-600 mb-6">
-          Screenshots de code, photos de tableau blanc, diagrammes...
-        </p>
-        <div className="px-8 py-3 text-base bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl inline-block hover:shadow-xl transition-all font-medium hover:scale-105">
-          📷 Sélectionner une image
-        </div>
-        <p className="text-xs text-gray-500 mt-4">
-          Formats supportés : JPG, PNG, WebP · Max 10 MB
-        </p>
-      </label>
-    ) : (
-      <div className="animate-fade-in">
-        <div className="mb-4">
-          <img 
-            src={selectedImagePreview} 
-            alt="Preview" 
-            className="max-w-full max-h-96 mx-auto rounded-xl shadow-2xl border-2 border-blue-200"
-          />
-        </div>
-        
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4">
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <ImageIcon className="w-5 h-5 text-blue-600" />
-            <p className="text-sm font-semibold text-blue-900">{selectedImage.name}</p>
-          </div>
-          <p className="text-xs text-blue-700">
-            {(selectedImage.size / 1024).toFixed(2)} KB · {programmingLanguage.toUpperCase()}
-          </p>
-        </div>
-
-        <div className="flex gap-3 justify-center">
-          <label htmlFor="image-upload" className="px-6 py-3 text-sm border-2 border-blue-300 text-blue-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-semibold cursor-pointer">
-            🔄 Changer l'image
-          </label>
-          
-          <button 
-            onClick={handleAnalyzeImage}
-            disabled={isAnalyzing}
-            className="px-8 py-3 text-sm bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isAnalyzing ? '⏳ Analyse en cours...' : '🔍 Analyser l\'image'}
-          </button>
-        </div>
-
-        <div className="mt-4 text-xs text-gray-500">
-          <p>💡 L'IA va extraire le code de l'image avec OCR, puis l'analyser pour détecter :</p>
-          <div className="flex gap-2 justify-center mt-2 flex-wrap">
-            <span className="px-2 py-1 bg-gray-100 rounded">Qualité du code</span>
-            <span className="px-2 py-1 bg-gray-100 rounded">Code smells</span>
-            <span className="px-2 py-1 bg-red-100 text-red-700 rounded">Vulnérabilités</span>
-          </div>
-        </div>
-      </div>
-    )}
-  </div>
-)}
+                    {!selectedImage ? (
+                      <label htmlFor="image-upload" className="cursor-pointer block">
+                        <div className="mb-6 inline-block">
+                          <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
+                            <ImageIcon className="w-12 h-12 text-blue-600 animate-pulse" />
+                          </div>
+                        </div>
+                        <h3 className="text-2xl font-semibold text-gray-900 mb-3">{t.uploadImageHere}</h3>
+                        <p className="text-base text-gray-600 mb-6">Screenshots de code, photos de tableau blanc, diagrammes...</p>
+                        <div className="px-8 py-3 text-base bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl inline-block hover:shadow-xl transition-all font-medium hover:scale-105">
+                          📷 Sélectionner une image
+                        </div>
+                        <p className="text-xs text-gray-500 mt-4">Formats supportés : JPG, PNG, WebP · Max 10 MB</p>
+                      </label>
+                    ) : (
+                      <div className="animate-fade-in">
+                        <div className="mb-4">
+                          <img src={selectedImagePreview} alt="Preview" className="max-w-full max-h-96 mx-auto rounded-xl shadow-2xl border-2 border-blue-200" />
+                        </div>
+                        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4">
+                          <div className="flex items-center justify-center gap-3 mb-2">
+                            <ImageIcon className="w-5 h-5 text-blue-600" />
+                            <p className="text-sm font-semibold text-blue-900">{selectedImage.name}</p>
+                          </div>
+                          <p className="text-xs text-blue-700">{(selectedImage.size / 1024).toFixed(2)} KB · {programmingLanguage.toUpperCase()}</p>
+                        </div>
+                        <div className="flex gap-3 justify-center">
+                          <label htmlFor="image-upload" className="px-6 py-3 text-sm border-2 border-blue-300 text-blue-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-semibold cursor-pointer">
+                            🔄 Changer l'image
+                          </label>
+                          <button onClick={handleAnalyzeImage} disabled={isAnalyzing}
+                            className="px-8 py-3 text-sm bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isAnalyzing ? '⏳ Analyse en cours...' : "🔍 Analyser l'image"}
+                          </button>
+                        </div>
+                        <div className="mt-4 text-xs text-gray-500">
+                          <p>💡 L'IA va extraire le code de l'image avec OCR, puis l'analyser pour détecter :</p>
+                          <div className="flex gap-2 justify-center mt-2 flex-wrap">
+                            <span className="px-2 py-1 bg-gray-100 rounded">Qualité du code</span>
+                            <span className="px-2 py-1 bg-gray-100 rounded">Code smells</span>
+                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded">Vulnérabilités</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1044,8 +1083,8 @@ const handleAnalyzeImage = async () => {
             {showResults && (
               <div ref={resultsRef} className="animate-scale-in">
 
-                {/* CAS SPÉCIAL : Score = 0 */}
-                {analysisResult.qualityScore === 0 ? (
+                {/* Score = 0 → code invalide */}
+                {analysisResult.qualityScore === 0 && inputMethod !== 'image' ? (
                   <div className="bg-white/90 backdrop-blur-md rounded-3xl border-2 border-red-200 shadow-2xl overflow-hidden">
                     <div className="bg-gradient-to-r from-red-50 via-rose-50 to-pink-50 border-b-2 border-red-200 p-8 sm:p-10 text-center">
                       <div className="text-7xl sm:text-8xl mb-4 animate-bounce-slow select-none">🤔</div>
@@ -1097,7 +1136,9 @@ const handleAnalyzeImage = async () => {
                   </div>
 
                 ) : (
-                  /* CAS NORMAL : Score > 0 */
+                  /* ════════════════════════════════════════════════
+                     CAS NORMAL : Score > 0
+                     ════════════════════════════════════════════════ */
                   <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-purple-200 shadow-2xl overflow-hidden">
 
                     {/* Header résultats */}
@@ -1115,7 +1156,6 @@ const handleAnalyzeImage = async () => {
                                 <span className="ml-3 text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full font-medium">✓ Analyse complète</span>
                               )}
                             </p>
-                            {/* Security mini-badge in header */}
                             {vulnResult && (
                               <div className="mt-2 flex items-center gap-2">
                                 {vulnCount === 0 ? (
@@ -1131,7 +1171,6 @@ const handleAnalyzeImage = async () => {
                             )}
                           </div>
                         </div>
-                        {/* Score qualité */}
                         <div className="text-center">
                           <div className={`text-5xl sm:text-6xl font-bold bg-gradient-to-r ${getScoreColor(analysisResult.qualityScore)} text-transparent bg-clip-text mb-1 animate-number-count`}>
                             {analysisResult.qualityScore}
@@ -1145,58 +1184,50 @@ const handleAnalyzeImage = async () => {
                         </div>
                       </div>
                     </div>
-{/* Bannière spécifique à l'analyse d'image */}
-{imageAnalysisData && (
-  <div className="p-6 sm:p-8 bg-gradient-to-r from-blue-50 to-cyan-50 border-b-2 border-blue-200">
-    <div className="flex flex-col sm:flex-row items-start gap-6">
-      <div className="flex-shrink-0">
-        <img 
-          src={imageAnalysisData.imageUrl} 
-          alt="Code analysé" 
-          className="w-32 h-32 sm:w-40 sm:h-40 object-cover rounded-xl shadow-lg border-2 border-blue-300"
-        />
-      </div>
-      
-      <div className="flex-1">
-        <div className="flex items-center gap-2 mb-3">
-          <ImageIcon className="w-5 h-5 text-blue-600" />
-          <h4 className="font-bold text-blue-900 text-lg">
-            Analyse depuis image
-          </h4>
-          <span className="px-3 py-1 bg-blue-200 text-blue-800 rounded-full text-xs font-bold">
-            OCR : {imageAnalysisData.ocrConfidence}% confiance
-          </span>
-        </div>
-        
-        {analysisResult.summary && (
-          <p className="text-sm text-blue-700 mb-3">
-            📝 {analysisResult.summary}
-          </p>
-        )}
+                    {/* ── Code extrait du PDF ── */}
+                    {inputMethod === 'upload' && codeInput && (
+                      <div className="p-4 sm:p-6 bg-gray-900 border-b border-gray-700">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <FileCode className="w-4 h-4 text-green-400" />
+                            <span className="text-sm font-semibold text-green-400">Code extrait du PDF</span>
+                            <span className="text-xs text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full">
+                              {codeInput.split('\n').length} lignes · {programmingLanguage}
+                            </span>
+                          </div>
+                        </div>
+                        <pre className="text-gray-100 text-xs font-mono leading-relaxed whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+                          {codeInput}
+                        </pre>
+                      </div>
+                    )}
+                    {/* Bannière image */}
+                    {imageAnalysisData && (
+                      <div className="p-6 sm:p-8 bg-gradient-to-r from-blue-50 to-cyan-50 border-b-2 border-blue-200">
+                        <div className="flex flex-col sm:flex-row items-start gap-6">
+                          <div className="flex-shrink-0">
+                            <img src={imageAnalysisData.imageUrl} alt="Code analysé" className="w-32 h-32 sm:w-40 sm:h-40 object-cover rounded-xl shadow-lg border-2 border-blue-300" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-3">
+                              <ImageIcon className="w-5 h-5 text-blue-600" />
+                              <h4 className="font-bold text-blue-900 text-lg">Analyse depuis image</h4>
+                              <span className="px-3 py-1 bg-blue-200 text-blue-800 rounded-full text-xs font-bold">OCR : {imageAnalysisData.ocrConfidence}% confiance</span>
+                            </div>
+                            {analysisResult.summary && (
+                              <p className="text-sm text-blue-700 mb-3">📝 {analysisResult.summary}</p>
+                            )}
+                      
+                            <details className="mt-3">
+                              <summary className="text-xs text-blue-600 font-semibold cursor-pointer hover:text-blue-700">📋 Voir le code brut extrait par OCR</summary>
+                              <pre className="mt-2 p-3 bg-gray-900 text-gray-100 rounded-lg text-xs overflow-x-auto max-h-40 border border-gray-700">{imageAnalysisData.extractedCode}</pre>
+                            </details>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-        {imageAnalysisData.correctedCode !== imageAnalysisData.extractedCode && (
-          <div className="flex items-start gap-2 text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-2">
-            <span className="text-green-600 text-base">✨</span>
-            <div>
-              <p className="font-semibold text-green-800">Code automatiquement corrigé par DeepSeek</p>
-              <p className="text-green-700">Les erreurs d'OCR et de formatage ont été corrigées</p>
-            </div>
-          </div>
-        )}
-
-        <details className="mt-3">
-          <summary className="text-xs text-blue-600 font-semibold cursor-pointer hover:text-blue-700">
-            📋 Voir le code brut extrait par OCR
-          </summary>
-          <pre className="mt-2 p-3 bg-gray-900 text-gray-100 rounded-lg text-xs overflow-x-auto max-h-40 border border-gray-700">
-            {imageAnalysisData.extractedCode}
-          </pre>
-        </details>
-      </div>
-    </div>
-  </div>
-)}
-                    {/* Tabs — maintenant avec Vulnérabilités */}
+                    {/* Tabs */}
                     <div className="border-b border-gray-200 px-6 sm:px-8 bg-white/50 overflow-x-auto">
                       <div className="flex gap-4 sm:gap-6 min-w-max">
                         {[
@@ -1211,16 +1242,14 @@ const handleAnalyzeImage = async () => {
                                 ? tab.id === 'security' ? 'border-red-500 text-red-600' : 'border-purple-600 text-purple-600'
                                 : 'border-transparent text-gray-600 hover:text-gray-900'
                             }`}>
-                            <tab.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${tab.alert ? 'text-red-500 animate-pulse' : ''}`} />
+                            <tab.icon className={`w-4 h-4 sm:w-5 sm:h-5 pointer-events-none ${tab.alert ? 'text-red-500 animate-pulse' : ''}`} />
                             {tab.label}
                             {tab.count !== null && tab.count > 0 && (
                               <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
                                 tab.id === 'security'
                                   ? tab.alert ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
                                   : 'bg-purple-100 text-purple-700'
-                              }`}>
-                                {tab.count}
-                              </span>
+                              }`}>{tab.count}</span>
                             )}
                             {tab.id === 'security' && tab.count === 0 && vulnResult && (
                               <span className="ml-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">✓</span>
@@ -1256,8 +1285,8 @@ const handleAnalyzeImage = async () => {
                                   <p className="text-xs sm:text-sm text-gray-700">{imp.suggestion}</p>
                                   {imp.severity && (
                                     <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${
-                                      imp.severity === 'error' ? 'bg-red-100 text-red-700'
-                                      : imp.severity === 'warning' ? 'bg-yellow-100 text-yellow-700'
+                                      imp.severity === 'error'      ? 'bg-red-100 text-red-700'
+                                      : imp.severity === 'warning'  ? 'bg-yellow-100 text-yellow-700'
                                       : imp.severity === 'convention' ? 'bg-blue-100 text-blue-700'
                                       : 'bg-gray-100 text-gray-600'
                                     }`}>{imp.severity}</span>
@@ -1296,7 +1325,7 @@ const handleAnalyzeImage = async () => {
                                   )}
                                   {smell.severity && (
                                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                                      smell.severity === 'error' ? 'bg-red-100 text-red-700'
+                                      smell.severity === 'error'    ? 'bg-red-100 text-red-700'
                                       : smell.severity === 'refactor' ? 'bg-orange-100 text-orange-700'
                                       : 'bg-yellow-100 text-yellow-700'
                                     }`}>{smell.severity}</span>
@@ -1309,47 +1338,112 @@ const handleAnalyzeImage = async () => {
                       )}
 
                       {/* Tab Documentation */}
-                      {activeTab === 'docs' && (
-                        <div className="animate-fade-in">
-                          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-5 sm:p-6">
-                            <div className="flex gap-3 sm:gap-4">
-                              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                              </div>
-                              <div className="flex-1">
-                                <h4 className="font-bold text-gray-900 mb-3 text-sm sm:text-base">Documentation</h4>
-                                <div className="flex items-center gap-3 mb-3">
-                                  <span className="text-sm text-gray-600">Couverture :</span>
-                                  <span className="font-bold text-green-600 text-lg">{analysisResult.documentation?.coverage ?? 0}%</span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                                  <div className="bg-gradient-to-r from-green-400 to-emerald-500 h-3 rounded-full transition-all duration-700"
-                                    style={{ width: `${analysisResult.documentation?.coverage ?? 0}%` }} />
-                                </div>
-                                <div className="space-y-2">
-                                  {(analysisResult.documentation?.missingDocs || []).map((doc, i) => (
-                                    <div key={i} className="text-xs sm:text-sm text-gray-600 flex items-start gap-2">
-                                      <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
-                                      <span>{doc.suggestion}{doc.line ? ` (ligne ${doc.line})` : ''}</span>
-                                    </div>
-                                  ))}
-                                  {(analysisResult.documentation?.missingDocs || []).length === 0 && (
-                                    <p className="text-sm text-green-600 font-medium">✅ Documentation complète !</p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                     {activeTab === 'docs' && (
+  <div className="animate-fade-in space-y-6">
 
-                      {/* ══════════════════════════════════════════════
-                          Tab VULNÉRABILITÉS — Ton modèle RoBERTa (localhost:5001)
-                          ══════════════════════════════════════════════ */}
+    {/* Couverture existante — tu gardes ce que tu avais */}
+  
+
+    {/* Séparateur */}
+    <div className="flex items-center gap-3">
+      <div className="flex-1 h-px bg-gray-200" />
+      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2">
+        Explication IA des fonctions
+      </span>
+      <div className="flex-1 h-px bg-gray-200" />
+    </div>
+
+    {/* Doc IA */}
+    {isLoadingDoc ? (
+      <div className="text-center py-10">
+        <div className="w-10 h-10 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-gray-600 font-medium">Génération de la documentation IA…</p>
+        <p className="text-xs text-gray-400 mt-1">L'IA analyse chaque fonction de votre code</p>
+      </div>
+    ) : !docResult || docResult.length === 0 ? (
+      <div className="text-center py-8">
+        <BookOpen className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+        <p className="text-sm text-gray-400">Aucune fonction détectée ou documentation indisponible</p>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">Chaque fonction expliquée en détail</p>
+          <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold border border-purple-200">
+            {docResult.length} fonction{docResult.length > 1 ? 's' : ''}
+          </span>
+        </div>
+        {docResult.map((fn, i) => (
+          <div key={i} className="border-2 border-gray-100 rounded-2xl overflow-hidden hover:border-purple-200 hover:shadow-md transition-all">
+            {/* Header fonction */}
+            <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-gray-50 border-b border-gray-100">
+              <code className="text-sm font-semibold text-purple-700 bg-purple-50 px-3 py-1 rounded-lg border border-purple-200">
+                {fn.name}
+              </code>
+              <span className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-200">
+                {fn.type || 'function'}
+              </span>
+              {fn.line && (
+                <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+                  Ligne {fn.line}
+                </span>
+              )}
+            </div>
+            {/* Corps */}
+            <div className="p-5 space-y-4">
+              {fn.description && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Ce que fait cette fonction</p>
+                  <p className="text-sm text-gray-700 leading-relaxed">{fn.description}</p>
+                </div>
+              )}
+              {fn.params && fn.params.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Paramètres</p>
+                  <div className="space-y-2">
+                    {fn.params.map((p, j) => (
+                      <div key={j} className="flex items-start gap-2">
+                        <code className="text-xs bg-gray-100 px-2 py-1 rounded border border-gray-200 text-gray-700 whitespace-nowrap flex-shrink-0">
+                          {p.name}
+                        </code>
+                        {p.type && (
+                          <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-200 whitespace-nowrap flex-shrink-0">
+                            {p.type}
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-500 leading-relaxed">{p.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {fn.returns && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Retourne</p>
+                  <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-sm text-green-800">
+                    {fn.returns}
+                  </div>
+                </div>
+              )}
+              {fn.example && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Exemple d'utilisation</p>
+                  <pre className="bg-gray-900 text-gray-100 rounded-xl px-4 py-3 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre-wrap">
+                    {fn.example}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+)}
+
+                      {/* Tab Vulnérabilités */}
                       {activeTab === 'security' && (
-                        <div className="animate-fade-in">
-
-                          {/* Pas encore de résultat */}
+                        <div className="animate-fade-in" >
                           {!vulnResult && (
                             <div className="text-center py-16">
                               <div className="w-16 h-16 border-4 border-red-200 border-t-red-500 rounded-full animate-spin mx-auto mb-4" />
@@ -1359,9 +1453,7 @@ const handleAnalyzeImage = async () => {
 
                           {vulnResult && (
                             <>
-                              {/* Score de sécurité + résumé */}
                               <div className="flex flex-col sm:flex-row gap-4 mb-6">
-                                {/* Score */}
                                 <div className="flex-1 bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 text-white flex items-center gap-4 shadow-xl">
                                   <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${getSecurityScoreColor(vulnResult.securityScore)} flex items-center justify-center flex-shrink-0 shadow-lg`}>
                                     <Lock className="w-7 h-7 text-white" />
@@ -1375,10 +1467,9 @@ const handleAnalyzeImage = async () => {
                                   </div>
                                 </div>
 
-                                {/* Compteurs par sévérité */}
                                 <div className="grid grid-cols-2 gap-3 sm:w-64">
                                   {['critical','high','medium','low'].map(sev => {
-                                    const cfg = getSeverityConfig(sev);
+                                    const cfg   = getSeverityConfig(sev);
                                     const count = vulnResult.vulnerabilities?.filter(v => v.severity === sev).length || 0;
                                     return (
                                       <div key={sev} className={`rounded-xl p-3 border-2 ${cfg.color} flex items-center gap-2`}>
@@ -1393,7 +1484,6 @@ const handleAnalyzeImage = async () => {
                                 </div>
                               </div>
 
-                              {/* Liste des vulnérabilités */}
                               {vulnCount === 0 ? (
                                 <div className="text-center py-12 bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl border-2 border-green-200">
                                   <div className="text-6xl mb-4">🛡️</div>
@@ -1406,7 +1496,6 @@ const handleAnalyzeImage = async () => {
                                     const cfg = getSeverityConfig(vuln.severity);
                                     return (
                                       <div key={i} className={`border-2 ${cfg.color} rounded-2xl overflow-hidden hover:shadow-lg transition-all`}>
-                                        {/* Header vuln */}
                                         <div className={`bg-gradient-to-r ${cfg.badge} p-4 flex items-start justify-between gap-3`}>
                                           <div className="flex items-start gap-3 flex-1 min-w-0">
                                             <span className="text-2xl flex-shrink-0">{cfg.emoji}</span>
@@ -1414,9 +1503,7 @@ const handleAnalyzeImage = async () => {
                                               <div className="flex flex-wrap items-center gap-2 mb-1">
                                                 <span className="text-xs text-white/80 font-mono font-bold">{vuln.id || `VULN-${String(i+1).padStart(3,'0')}`}</span>
                                                 <span className="px-2 py-0.5 bg-white/20 text-white rounded-full text-xs font-bold">{cfg.label}</span>
-                                                {vuln.cwe && (
-                                                  <span className="px-2 py-0.5 bg-black/20 text-white/90 rounded-full text-xs font-mono">{vuln.cwe}</span>
-                                                )}
+                                                {vuln.cwe && <span className="px-2 py-0.5 bg-black/20 text-white/90 rounded-full text-xs font-mono">{vuln.cwe}</span>}
                                               </div>
                                               <h4 className="font-bold text-white text-sm sm:text-base">{vuln.title}</h4>
                                               <p className="text-white/80 text-xs mt-0.5">{vuln.type}</p>
@@ -1428,26 +1515,15 @@ const handleAnalyzeImage = async () => {
                                             </span>
                                           )}
                                         </div>
-
-                                        {/* Corps vuln */}
                                         <div className="p-4 sm:p-5 bg-white space-y-3">
-
-                                          {/* Confiance du modèle */}
                                           {vuln.confidence && (
                                             <div className="flex items-center gap-3">
                                               <div className="flex-1 bg-gray-100 rounded-full h-2">
-                                                <div
-                                                  className={`h-2 rounded-full bg-gradient-to-r ${cfg.badge} transition-all duration-700`}
-                                                  style={{ width: `${vuln.confidence}%` }}
-                                                />
+                                                <div className={`h-2 rounded-full bg-gradient-to-r ${cfg.badge} transition-all duration-700`} style={{ width: `${vuln.confidence}%` }} />
                                               </div>
-                                              <span className="text-xs font-bold text-gray-600 whitespace-nowrap">
-                                                {vuln.confidence}% confiance
-                                              </span>
+                                              <span className="text-xs font-bold text-gray-600 whitespace-nowrap">{vuln.confidence}% confiance</span>
                                             </div>
                                           )}
-
-                                          {/* Description */}
                                           <div className="flex items-start gap-3">
                                             <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
                                             <div>
@@ -1455,8 +1531,6 @@ const handleAnalyzeImage = async () => {
                                               <p className="text-sm text-gray-700">{vuln.description}</p>
                                             </div>
                                           </div>
-
-                                          {/* Lignes vulnérables détectées par ton modèle */}
                                           {vuln.lines && vuln.lines.length > 0 && (
                                             <div>
                                               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -1465,27 +1539,16 @@ const handleAnalyzeImage = async () => {
                                               <div className="space-y-2 rounded-xl overflow-hidden border border-gray-200">
                                                 {vuln.lines.map((vl, li) => (
                                                   <div key={li} className="bg-gray-950 text-gray-100">
-                                                    {/* Header ligne */}
                                                     <div className="flex items-center justify-between px-3 py-1.5 bg-red-900/40 border-b border-red-800/40">
-                                                      <span className="text-xs font-mono font-bold text-red-300">
-                                                        ⚠️ Ligne {vl.line}
-                                                      </span>
+                                                      <span className="text-xs font-mono font-bold text-red-300">⚠️ Ligne {vl.line}</span>
                                                     </div>
-                                                    {/* Code */}
                                                     <div className="flex">
-                                                      <span className="select-none px-3 py-2 text-xs font-mono text-gray-600 border-r border-gray-800 min-w-[2.5rem] text-right bg-gray-900">
-                                                        {vl.line}
-                                                      </span>
-                                                      <pre className="px-3 py-2 text-xs font-mono text-red-300 overflow-x-auto flex-1 whitespace-pre-wrap break-all">
-                                                        {vl.code}
-                                                      </pre>
+                                                      <span className="select-none px-3 py-2 text-xs font-mono text-gray-600 border-r border-gray-800 min-w-[2.5rem] text-right bg-gray-900">{vl.line}</span>
+                                                      <pre className="px-3 py-2 text-xs font-mono text-red-300 overflow-x-auto flex-1 whitespace-pre-wrap break-all">{vl.code}</pre>
                                                     </div>
-                                                    {/* Explication */}
                                                     {vl.explanation && (
                                                       <div className="px-3 py-2 bg-amber-900/30 border-t border-amber-800/30">
-                                                        <p className="text-xs text-amber-300">
-                                                          <strong>⚠️ Problème :</strong> {vl.explanation}
-                                                        </p>
+                                                        <p className="text-xs text-amber-300"><strong>⚠️ Problème :</strong> {vl.explanation}</p>
                                                       </div>
                                                     )}
                                                   </div>
@@ -1493,8 +1556,6 @@ const handleAnalyzeImage = async () => {
                                               </div>
                                             </div>
                                           )}
-
-                                          {/* Fix */}
                                           {vuln.fix && (
                                             <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl p-3">
                                               <span className="text-green-600 flex-shrink-0 text-lg">💡</span>
@@ -1511,11 +1572,10 @@ const handleAnalyzeImage = async () => {
                                 </div>
                               )}
 
-                              {/* Footer sécurité — ton modèle local */}
                               <div className="mt-6 flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
                                 <ShieldAlert className="w-5 h-5 text-slate-500 flex-shrink-0" />
                                 <p className="text-xs text-slate-500">
-                                  Analyse propulsée par ton <strong className="text-purple-600">modèle RoBERTa fine-tuné</strong> (localhost:5001).
+                                  Analyse propulsée par votre <strong className="text-purple-600">modèle RoBERTa fine-tuné</strong> (localhost:5001).
                                   Les résultats sont indicatifs — effectuez toujours un audit complet avant mise en production.
                                 </p>
                               </div>
@@ -1525,12 +1585,60 @@ const handleAnalyzeImage = async () => {
                       )}
                     </div>
 
-                    {/* Actions */}
+                    {/* ════════════════════════════════════════════════
+                        ACTIONS — Bouton "Appliquer les corrections"
+                        ════════════════════════════════════════════════ */}
                     <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-purple-50 to-pink-50">
+                      {/* Résumé des problèmes */}
+                      {totalProblemsCount > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 mb-4 text-xs">
+                          <span className="text-gray-500 font-medium">Problèmes détectés :</span>
+                          {analysisResult.improvements.length > 0 && (
+                            <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full font-semibold border border-amber-200">
+                              {analysisResult.improvements.length} amélioration{analysisResult.improvements.length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {analysisResult.codeSmells.length > 0 && (
+                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full font-semibold border border-red-200">
+                              {analysisResult.codeSmells.length} code smell{analysisResult.codeSmells.length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {vulnCount > 0 && (
+                            <span className="px-2 py-1 bg-rose-100 text-rose-700 rounded-full font-semibold border border-rose-200">
+                              {vulnCount} vulnérabilité{vulnCount > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          <span className="text-gray-400">→ CodeReview va tout corriger automatiquement</span>
+                        </div>
+                      )}
+
                       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                        <button className="flex-1 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white rounded-xl hover:shadow-2xl transition-all font-semibold shadow-lg hover:scale-105">
-                          ✨ Appliquer les corrections
+                        {/* Bouton principal — Appliquer les corrections */}
+                        <button
+                          onClick={handleApplyCorrections}
+                          disabled={isApplyingCorrections || totalProblemsCount === 0}
+                          className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 sm:py-4 text-sm sm:text-base rounded-xl transition-all font-semibold shadow-lg ${
+                            totalProblemsCount === 0
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : isApplyingCorrections
+                                ? 'bg-gradient-to-r from-purple-400 to-pink-400 text-white cursor-wait'
+                                : 'bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white hover:shadow-2xl hover:scale-105'
+                          }`}>
+                          {isApplyingCorrections ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                              CodeReview corrige votre code…
+                            </>
+                          ) : totalProblemsCount === 0 ? (
+                            <>✅ Code déjà propre !</>
+                          ) : (
+                            <>
+                              ✨ Appliquer les corrections ({totalProblemsCount})
+                            </>
+                          )}
                         </button>
+
+                        {/* Bouton Nouvelle analyse */}
                         <button onClick={handleReset}
                           className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105">
                           Nouvelle analyse
@@ -1575,14 +1683,14 @@ const handleAnalyzeImage = async () => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {[
-              { icon: <Terminal className="w-8 h-8" />, title: t.featureMultiLang,     desc: t.featureMultiLangDesc,     gradient: 'from-purple-500 to-purple-600' },
-              { icon: <Bug      className="w-8 h-8" />, title: t.featureBugDetection,  desc: t.featureBugDetectionDesc,  gradient: 'from-pink-500 to-pink-600' },
-              { icon: <FileText className="w-8 h-8" />, title: t.featureAutoDocs,      desc: t.featureAutoDocsDesc,      gradient: 'from-blue-500 to-blue-600' },
-              { icon: <Shield   className="w-8 h-8" />, title: t.featureSecurity,      desc: t.featureSecurityDesc,      gradient: 'from-green-500 to-green-600' },
-              { icon: <Zap      className="w-8 h-8" />, title: t.featureOptimization,  desc: t.featureOptimizationDesc,  gradient: 'from-yellow-500 to-orange-600' },
-              { icon: <TrendingUp className="w-8 h-8"/>, title: t.featureMetrics,      desc: t.featureMetricsDesc,       gradient: 'from-indigo-500 to-indigo-600' },
-              { icon: <Clock    className="w-8 h-8" />, title: t.featureSpeed,         desc: t.featureSpeedDesc,         gradient: 'from-cyan-500 to-cyan-600' },
-              { icon: <Users    className="w-8 h-8" />, title: t.featureCollaboration, desc: t.featureCollaborationDesc, gradient: 'from-rose-500 to-rose-600' },
+              { icon: <Terminal className="w-8 h-8" />,   title: t.featureMultiLang,     desc: t.featureMultiLangDesc,     gradient: 'from-purple-500 to-purple-600' },
+              { icon: <Bug className="w-8 h-8" />,        title: t.featureBugDetection,  desc: t.featureBugDetectionDesc,  gradient: 'from-pink-500 to-pink-600' },
+              { icon: <FileText className="w-8 h-8" />,   title: t.featureAutoDocs,      desc: t.featureAutoDocsDesc,      gradient: 'from-blue-500 to-blue-600' },
+              { icon: <Shield className="w-8 h-8" />,     title: t.featureSecurity,      desc: t.featureSecurityDesc,      gradient: 'from-green-500 to-green-600' },
+              { icon: <Zap className="w-8 h-8" />,        title: t.featureOptimization,  desc: t.featureOptimizationDesc,  gradient: 'from-yellow-500 to-orange-600' },
+              { icon: <TrendingUp className="w-8 h-8" />, title: t.featureMetrics,       desc: t.featureMetricsDesc,       gradient: 'from-indigo-500 to-indigo-600' },
+              { icon: <Clock className="w-8 h-8" />,      title: t.featureSpeed,         desc: t.featureSpeedDesc,         gradient: 'from-cyan-500 to-cyan-600' },
+              { icon: <Users className="w-8 h-8" />,      title: t.featureCollaboration, desc: t.featureCollaborationDesc, gradient: 'from-rose-500 to-rose-600' },
             ].map((f, i) => (
               <div key={i} className="bg-white rounded-2xl p-4 sm:p-6 border-2 border-gray-200 hover:border-transparent hover:shadow-2xl transition-all group cursor-pointer transform hover:scale-105 animate-fade-in-up"
                 style={{ animationDelay: `${i * 0.1}s` }}>
@@ -1676,8 +1784,177 @@ const handleAnalyzeImage = async () => {
         </div>
       </footer>
 
+      {/* ════════════════════════════════════════════════════════
+          MODAL "APPLIQUER LES CORRECTIONS"
+          ════════════════════════════════════════════════════════ */}
+      {showCorrectionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl border border-purple-200 w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl animate-scale-in">
+
+            {/* Header modal */}
+            <div className="flex items-start justify-between gap-3 p-6 border-b border-gray-200 flex-shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  ✨ Corrections appliquées par CodeReview
+                </h3>
+                {correctionResult && (
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                    <span className="px-2.5 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold border border-purple-200">
+                      {correctionResult.appliedFixes?.length || 0} correction{(correctionResult.appliedFixes?.length || 0) > 1 ? 's' : ''}
+                    </span>
+                    {vulnCount > 0 && (
+                      <span className="px-2.5 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold border border-green-200">
+                        {vulnCount} vulnérabilité{vulnCount > 1 ? 's' : ''} corrigée{vulnCount > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    <span className="px-2.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold border border-blue-200 capitalize">
+                      {programmingLanguage}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setShowCorrectionModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1 rounded-lg hover:bg-gray-100 transition-all flex-shrink-0">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body modal */}
+            <div className="flex-1 overflow-y-auto p-6">
+
+              {/* État chargement */}
+              {isApplyingCorrections && (
+                <div className="text-center py-16">
+                  <div className="relative w-20 h-20 mx-auto mb-6">
+                    <div className="w-full h-full border-4 border-purple-100 border-t-purple-600 rounded-full animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-2xl">✨</span>
+                    </div>
+                  </div>
+                  <p className="text-gray-800 font-semibold text-lg mb-1">CodeReview corrige votre code…</p>
+                  <p className="text-sm text-gray-500">Analyse des {totalProblemsCount} problème{totalProblemsCount > 1 ? 's' : ''} et réécriture en cours</p>
+                  <div className="flex items-center justify-center gap-1.5 mt-4">
+                    {[0,1,2].map(i => (
+                      <div key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Résultat */}
+              {!isApplyingCorrections && correctionResult && (
+                <div className="space-y-5">
+
+                  {/* Résumé */}
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-1.5">Résumé des corrections</p>
+                    <p className="text-sm text-purple-900 leading-relaxed">{correctionResult.summary}</p>
+                  </div>
+
+                  {/* Tabs code / fixes */}
+                  <div className="flex gap-1 border-b border-gray-200">
+                    {[
+                      { id: 'code',  label: 'Code corrigé' },
+                      { id: 'fixes', label: `Détail (${correctionResult.appliedFixes?.length || 0} fix${(correctionResult.appliedFixes?.length || 0) > 1 ? 'es' : ''})` },
+                    ].map(tab => (
+                      <button key={tab.id} onClick={() => setCorrectionTab(tab.id)}
+                        className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
+                          correctionTab === tab.id ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-800'
+                        }`}>
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tab : code corrigé */}
+                  {correctionTab === 'code' && (
+                    <div className="relative">
+                      <div className="absolute top-3 right-3 z-10">
+                        <button onClick={handleCopyCode}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            codeCopied
+                              ? 'bg-green-500 text-white'
+                              : 'bg-white/10 hover:bg-white/20 text-gray-300 border border-white/20'
+                          }`}>
+                          {codeCopied ? <><Check className="w-3 h-3" /> Copié !</> : <><Copy className="w-3 h-3" /> Copier</>}
+                        </button>
+                      </div>
+                      <div className="bg-gray-950 rounded-2xl p-5 overflow-x-auto">
+                        <pre className="text-gray-100 text-xs font-mono leading-relaxed whitespace-pre-wrap break-words pr-20">
+                          {correctionResult.correctedCode}
+                        </pre>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2 text-right">
+                        {correctionResult.correctedCode.split('\n').length} lignes · {programmingLanguage}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Tab : détail des fixes */}
+                  {correctionTab === 'fixes' && (
+                    <div className="space-y-3">
+                      {(correctionResult.appliedFixes || []).length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <p className="text-sm">Aucun détail de fix disponible.</p>
+                        </div>
+                      ) : correctionResult.appliedFixes.map((fix, i) => (
+                        <div key={i} className="flex gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-200 hover:border-purple-200 hover:shadow-sm transition-all">
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5 shadow">
+                            {i + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-bold text-purple-600">Ligne {fix.line}</span>
+                              <span className="text-gray-300">·</span>
+                              <span className="text-xs text-gray-500 truncate">{fix.reason}</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                              <div className="bg-red-50 border-l-2 border-red-400 rounded-r-xl p-2.5">
+                                <p className="text-xs text-red-500 font-bold mb-1 flex items-center gap-1">
+                                  <span className="w-3 h-3 inline-block rounded-full bg-red-400" /> Avant
+                                </p>
+                                <code className="text-xs text-red-700 font-mono break-words leading-relaxed block">
+                                  {fix.original}
+                                </code>
+                              </div>
+                              <div className="bg-green-50 border-l-2 border-green-400 rounded-r-xl p-2.5">
+                                <p className="text-xs text-green-600 font-bold mb-1 flex items-center gap-1">
+                                  <span className="w-3 h-3 inline-block rounded-full bg-green-400" /> Après
+                                </p>
+                                <code className="text-xs text-green-700 font-mono break-words leading-relaxed block">
+                                  {fix.fixed}
+                                </code>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer modal */}
+            {!isApplyingCorrections && correctionResult && (
+              <div className="p-5 border-t border-gray-200 bg-gradient-to-r from-purple-50 to-pink-50 rounded-b-3xl flex flex-col sm:flex-row gap-3 justify-end flex-shrink-0">
+                <button onClick={() => setShowCorrectionModal(false)}
+                  className="px-5 py-2.5 text-sm border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 hover:border-gray-400 transition-all font-medium">
+                  Annuler
+                </button>
+                <button onClick={handleReplaceCode}
+                  className="px-6 py-2.5 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4" />
+                  Remplacer mon code
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── CSS ────────────────────────────────────────────── */}
-      <style >{`
+      <style>{`
         @keyframes float-slow { 0%,100%{transform:translateY(0)translateX(0)rotate(0deg)} 33%{transform:translateY(-30px)translateX(20px)rotate(120deg)} 66%{transform:translateY(20px)translateX(-20px)rotate(240deg)} }
         @keyframes fade-in { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
         @keyframes fade-in-up { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
@@ -1710,7 +1987,7 @@ const defaultTranslations = {
   fr: {
     features:'Fonctionnalités', pricing:'Tarifs', docs:'Documentation', start:'Commencer',
     hero:'Revue de code,', heroHighlight:'Instantanément',
-    heroDesc:'Optimisé par une IA qui comprend votre code. Détectez les erreurs, améliorez la qualité et générez la documentation automatiquement.',
+    heroDesc:"Optimisé par une IA qui comprend votre code. Détectez les erreurs, améliorez la qualité et générez la documentation automatiquement.",
     tryFree:'Essayer gratuitement', uploadCode:'Télécharger un fichier', pasteCode:'Coller le code',
     uploadImage:'Image', pasteCodeHere:'Collez votre code ici...', selectLanguage:'Sélectionner le langage',
     analyze:'Analyser', clear:'Effacer', uploadImageHere:'Télécharger une image ici',

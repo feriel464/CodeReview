@@ -217,7 +217,7 @@ function analyzeCodeLocally(code, language) {
   const warningCount = improvements.filter(i => i.severity === 'warning').length;
   
   // ✅ CORRECTION : pénalités plus fortes pour avoir un score réaliste
-  const score = Math.max(0, 100 - errorCount * 25 - warningCount * 10 - codeSmells.length * 5);
+  const score = Math.max(5, 100 - errorCount * 20 - warningCount * 8 - codeSmells.length * 4);
   
   const summary = improvements.length > 0
     ? `${improvements.length} problème(s) détecté(s) : ${improvements.map(i => i.message).join(', ')}`

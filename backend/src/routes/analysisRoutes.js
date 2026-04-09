@@ -31,5 +31,7 @@ router.delete('/history/:projectId', authMiddleware, analysisController.deleteHi
 
 // Détails d'une analyse
 router.get('/:id', authMiddleware, analysisController.getAnalysisDetails);
+router.post('/apply-corrections', optionalAuth, analysisController.applyCorrections);
+router.post('/document', analysisController.documentCode);
 
 module.exports = router;
