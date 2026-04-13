@@ -8,6 +8,8 @@ const securityRoutes = require('./routes/securityRoutes');
 const imageAnalysisRoutes = require('./routes/imageAnalysisRoutes');
 const userRoutes = require('./routes/admindash/Userroutes'); 
 const dashboardRoutes = require('./routes/admindash/dashboardRoutes');
+const codeReviewsRoutes = require('./routes/admindash/codeReviewsRoutes');
+const passport = require('./config/passport');
 
 require('dotenv').config();
 
@@ -27,8 +29,12 @@ app.use('/api/analyze', analysisRoutes);
 app.use('/api/security', securityRoutes);
 app.use('/api/image', imageAnalysisRoutes);
 app.use('/api/pdf', require('./routes/pdf'));
+// Route de l'admin
 app.use('/api/users', userRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/code-reviews', codeReviewsRoutes);
+app.use(passport.initialize());
+
 // Route de test
 app.get('/api', async (req, res) => {
   try {

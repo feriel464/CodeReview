@@ -127,18 +127,20 @@ exports.analyzeCode = async (req, res) => {
 
     // ── Stocker les résultats ─────────────────────────────────
     const resultInsert = await client.query(
-      `INSERT INTO analysis_results (code_version_id, quality_score, improvements, code_smells, documentation, metrics)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, quality_score, improvements, code_smells, documentation, metrics, analyzed_at`,
-      [
-        codeVersionId,
-        analysisResult.qualityScore,
-        JSON.stringify(analysisResult.improvements),
-        JSON.stringify(analysisResult.codeSmells),
-        JSON.stringify(analysisResult.documentation),
-        JSON.stringify(analysisResult.metrics)
-      ]
-    );
+  `INSERT INTO analysis_results 
+    (code_version_id, quality_score, improvements, code_smells, documentation, metrics, vulnerabilities)
+   VALUES ($1, $2, $3, $4, $5, $6, $7)
+   RETURNING id, quality_score, improvements, code_smells, documentation, metrics, vulnerabilities, analyzed_at`,
+  [
+    codeVersionId,
+    analysisResult.qualityScore,
+    JSON.stringify(analysisResult.improvements),
+    JSON.stringify(analysisResult.codeSmells),
+    JSON.stringify(analysisResult.documentation),
+    JSON.stringify(analysisResult.metrics),
+    JSON.stringify(analysisResult.vulnerabilities || []),
+  ]
+);
 
     await client.query('COMMIT');
 
@@ -431,32 +433,86 @@ async function performCodeAnalysis(code, language) {
     const rawAnalysis = await analyzeCode(code, language);
     if (!rawAnalysis.success) {
       return {
-        qualityScore:  0,
-        improvements:  [],
-        codeSmells:    [],
-        errors:        [],
-        documentation: { coverage: 0, missingDocs: [] },
-        metrics:       calculateBasicMetrics(code)
+        qualityScore:    0,
+        improvements:    [],
+        codeSmells:      [],
+        vulnerabilities: [],
+        documentation:   { coverage: 0, functions: [], missingDocs: [] },
+        metrics:         calculateBasicMetrics(code),
       };
     }
+
+    // ── Documentation détaillée via DeepSeek ──────────────────
+    let documentation = { coverage: 0, functions: [], missingDocs: [] };
+    try {
+      const docResponse = await axios.post(
+        DEEPSEEK_API_URL,
+        {
+          model:       'deepseek-coder',
+          messages:    [{
+            role: 'user',
+            content: `Tu es un expert en documentation de code. Analyse ce code ${language} et génère une documentation structurée en JSON.
+
+Pour CHAQUE fonction/méthode/classe trouvée, retourne un objet avec ces champs :
+- "name": nom de la fonction
+- "type": "function" | "async function" | "class" | "method"
+- "line": numéro de ligne approximatif
+- "description": explication claire en 2-4 phrases
+- "params": tableau d'objets { name, type, description }
+- "returns": string — ce que la fonction retourne
+- "example": string — exemple d'appel concret (1-2 lignes max)
+
+Retourne UNIQUEMENT un JSON valide, sans markdown, sans backticks :
+{ "functions": [ {...} ], "coverage": <0-100> }
+
+Code :
+\`\`\`${language}
+${code}
+\`\`\``
+          }],
+          temperature: 0.2,
+          max_tokens:  3000,
+        },
+        {
+          headers: { 'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+          timeout: 45000,
+        }
+      );
+
+      const content  = docResponse.data.choices[0].message.content;
+      const cleaned  = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+      const match    = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        documentation = {
+          coverage:    parseInt(parsed.coverage) || 0,
+          functions:   Array.isArray(parsed.functions) ? parsed.functions : [],
+          missingDocs: (Array.isArray(parsed.functions) ? parsed.functions : [])
+            .filter(f => !f.description || f.description.length < 10)
+            .map(f => ({ type: f.type || 'function', name: f.name, line: f.line, suggestion: 'Ajoutez une description complète' })),
+        };
+      }
+    } catch (docError) {
+      console.warn('⚠️ Documentation DeepSeek échouée:', docError.message);
+      documentation = generateDocumentation(code, language, rawAnalysis);
+    }
+
     return {
-      qualityScore:  rawAnalysis.qualityScore,
-      improvements:  rawAnalysis.improvements  || [],
-      codeSmells:    rawAnalysis.codeSmells    || [],
-      errors:        rawAnalysis.errors        || [],
-      documentation: generateDocumentation(code, language, rawAnalysis),
-      metrics:       rawAnalysis.metrics       || calculateBasicMetrics(code),
-      ...(rawAnalysis.score     !== undefined && { pylintScore: rawAnalysis.score }),
-      ...(rawAnalysis.simulated && { simulated: true })
+      qualityScore:    rawAnalysis.qualityScore,
+      improvements:    rawAnalysis.improvements    || [],
+      codeSmells:      rawAnalysis.codeSmells      || [],
+      vulnerabilities: rawAnalysis.vulnerabilities || [], // ← récupéré de l'IA
+      documentation,
+      metrics:         rawAnalysis.metrics         || calculateBasicMetrics(code),
     };
   } catch (error) {
     return {
-      qualityScore:  0,
-      improvements:  [{ type: 'error', severity: 'error', line: 1, message: "Erreur lors de l'analyse du code", suggestion: error.message }],
-      codeSmells:    [],
-      errors:        [],
-      documentation: { coverage: 0, missingDocs: [] },
-      metrics:       calculateBasicMetrics(code)
+      qualityScore:    0,
+      improvements:    [{ type: 'error', severity: 'error', line: 1, message: "Erreur lors de l'analyse", suggestion: error.message }],
+      codeSmells:      [],
+      vulnerabilities: [],
+      documentation:   { coverage: 0, functions: [], missingDocs: [] },
+      metrics:         calculateBasicMetrics(code),
     };
   }
 }

@@ -39,7 +39,7 @@ export default function AdminDashboard() {
   const [recentAnalyses, setRecentAnalyses] = useState([]);
   const [languages, setLanguages]           = useState([]);
   const [issues, setIssues]                 = useState({
-    bugs: 0, smells: 0, optimizations: 0, documentation: 0,
+ bugs: 0, improvements: 0, smells: 0, vulnerabilities: 0, documentation: 0,
   });
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardError, setDashboardError]     = useState(null);
@@ -47,6 +47,16 @@ export default function AdminDashboard() {
 
   const [codeModal, setCodeModal] = useState(null);      // { file, language, code }
   const [codeLoading, setCodeLoading] = useState(false);
+
+  const [period, setPeriod]           = useState('year');
+  const [showPeriodMenu, setShowPeriodMenu] = useState(false);
+
+  const PERIODS = [
+    { key: 'today',  label: "Aujourd'hui" },
+    { key: '7days',  label: '7 derniers jours' },
+    { key: '30days', label: '30 derniers jours' },
+    { key: 'year',   label: 'Cette année' },
+  ];
   // ── Background animé ─────────────────────────────────────────
   useEffect(() => {
     const elements = Array.from({ length: 10 }, (_, i) => ({
@@ -74,15 +84,15 @@ export default function AdminDashboard() {
 
   // ── Fetch dashboard ──────────────────────────────────────────
   const fetchDashboard = useCallback(async () => {
-    setDashboardLoading(true);
-    setDashboardError(null);
-    try {
-      const [statsRes, analysesRes, langsRes, issuesRes] = await Promise.all([
-        fetch(`${API_BASE}/dashboard/stats`),
-        fetch(`${API_BASE}/dashboard/recent-analyses`),
-        fetch(`${API_BASE}/dashboard/languages`),
-        fetch(`${API_BASE}/dashboard/issues`),
-      ]);
+  setDashboardLoading(true);
+  setDashboardError(null);
+  try {
+    const [statsRes, analysesRes, langsRes, issuesRes] = await Promise.all([
+      fetch(`${API_BASE}/dashboard/stats?period=${period}`),
+      fetch(`${API_BASE}/dashboard/recent-analyses?period=${period}`),
+      fetch(`${API_BASE}/dashboard/languages?period=${period}`),
+      fetch(`${API_BASE}/dashboard/issues?period=${period}`),
+    ]);
 
       const [s, a, l, i] = await Promise.all([
         statsRes.json(),
@@ -101,7 +111,7 @@ export default function AdminDashboard() {
     } finally {
       setDashboardLoading(false);
     }
-  }, []);
+  }, [period]);
 
   useEffect(() => {
     if (activeSection === 'dashboard') fetchDashboard();
@@ -307,10 +317,34 @@ const handleViewCode = async (analysis) => {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-2">
                   <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900">Tableau de bord</h1>
                   <div className="flex items-center gap-2 sm:gap-3">
-                    <button className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white border-2 border-gray-200 rounded-lg sm:rounded-xl hover:border-purple-500 transition-all text-xs sm:text-sm font-semibold">
-                      <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
-                      <span className="hidden sm:inline">Aujourd'hui</span>
-                    </button>
+                    <div className="relative">
+  <button
+    onClick={() => setShowPeriodMenu(!showPeriodMenu)}
+    className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white border-2 border-gray-200 rounded-lg sm:rounded-xl hover:border-purple-500 transition-all text-xs sm:text-sm font-semibold"
+  >
+    <Calendar className="w-3 h-3 sm:w-4 sm:h-4 text-purple-600" />
+    <span className="hidden sm:inline">
+      {PERIODS.find(p => p.key === period)?.label}
+    </span>
+    <ChevronDown className={`w-3 h-3 transition-transform ${showPeriodMenu ? 'rotate-180' : ''}`} />
+  </button>
+
+  {showPeriodMenu && (
+    <div className="absolute left-0 mt-2 w-44 bg-white rounded-xl shadow-2xl border-2 border-gray-200 py-1 z-50 animate-fade-in">
+      {PERIODS.map(p => (
+        <button
+          key={p.key}
+          onClick={() => { setPeriod(p.key); setShowPeriodMenu(false); }}
+          className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors hover:bg-purple-50 hover:text-purple-700 ${
+            period === p.key ? 'bg-purple-50 text-purple-700 font-bold' : 'text-gray-700'
+          }`}
+        >
+          {p.key === period && '✓ '}{p.label}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
                     <button
                       onClick={fetchDashboard}
                       disabled={dashboardLoading}
@@ -352,10 +386,7 @@ const handleViewCode = async (analysis) => {
                     <h2 className="text-lg sm:text-xl font-bold text-gray-900">Analyses récentes</h2>
                     <p className="text-xs sm:text-sm text-gray-600">Dernières revues de code effectuées</p>
                   </div>
-                  <button className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200 hover:border-purple-500 transition-all text-sm font-semibold">
-                    <Filter className="w-4 h-4" />
-                    Filtrer
-                  </button>
+                
                 </div>
 
                 {/* Loader */}
@@ -520,10 +551,11 @@ const handleViewCode = async (analysis) => {
                   ) : (
                     <div className="space-y-3 sm:space-y-4">
                       {[
-                        { type: 'Bugs critiques',  count: issues.bugs,          icon: Bug,         gradient: 'from-red-400 to-red-500',       bgColor: 'bg-red-100',    textColor: 'text-red-700'    },
-                        { type: 'Code smells',     count: issues.smells,        icon: AlertCircle, gradient: 'from-orange-400 to-orange-500', bgColor: 'bg-orange-100', textColor: 'text-orange-700' },
-                        { type: 'Optimisations',   count: issues.optimizations, icon: Zap,         gradient: 'from-yellow-400 to-yellow-500', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700' },
-                        { type: 'Documentation',   count: issues.documentation, icon: FileText,    gradient: 'from-blue-400 to-blue-500',     bgColor: 'bg-blue-100',   textColor: 'text-blue-700'   },
+                         { type: 'Bugs critiques',  count: issues.bugs,            icon: Bug,         gradient: 'from-red-400 to-red-500',       bgColor: 'bg-red-100',    textColor: 'text-red-700'    },
+  { type: 'Améliorations',   count: issues.improvements,    icon: Zap,         gradient: 'from-yellow-400 to-yellow-500', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700' },
+  { type: 'Code smells',     count: issues.smells,          icon: AlertCircle, gradient: 'from-orange-400 to-orange-500', bgColor: 'bg-orange-100', textColor: 'text-orange-700' },
+  { type: 'Vulnérabilités',  count: issues.vulnerabilities, icon: Bug,         gradient: 'from-purple-400 to-purple-500', bgColor: 'bg-purple-100', textColor: 'text-purple-700' },
+  { type: 'Documentation',   count: issues.documentation,   icon: FileText,    gradient: 'from-blue-400 to-blue-500',     bgColor: 'bg-blue-100',   textColor: 'text-blue-700'   },
                       ].map((item, i) => (
                         <div key={i} className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg sm:rounded-xl hover:bg-purple-50 transition-all cursor-pointer group transform hover:scale-[1.02]">
                           <div className="flex items-center gap-2 sm:gap-3">
@@ -545,7 +577,7 @@ const handleViewCode = async (analysis) => {
           )}
 
           {activeSection === 'users'     && <UsersPage />}
-          {activeSection === 'reviews'   && <CodeReviewsPage />}
+          {activeSection === 'reviews'   && <CodeReviewsPage sidebarOpen={sidebarOpen} />}
           {activeSection === 'analytics' && <AnalyticsPage />}
           {activeSection === 'settings'  && <SettingsPage />}
 

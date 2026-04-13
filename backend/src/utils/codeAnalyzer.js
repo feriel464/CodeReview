@@ -59,6 +59,16 @@ Structure JSON obligatoire :
   "codeSmells": [
     { "line": <entier>, "message": "<description>", "severity": "error|warning|refactor", "variable": "<règle concernée>" }
   ],
+  "vulnerabilities": [
+    {
+      "title": "<nom de la vulnérabilité>",
+      "severity": "critical|high|medium|low",
+      "description": "<explication claire>",
+      "cwe": "<ex: CWE-89>",
+      "lines": [{ "line": <entier>, "code": "<extrait>", "explanation": "<pourquoi c'est dangereux>" }],
+      "fix": "<comment corriger concrètement>"
+    }
+  ],
   "metrics": {
     "totalLines": <entier>,
     "functions": <entier>,
@@ -69,8 +79,10 @@ Structure JSON obligatoire :
   }
 }
 
+Cherche activement des vulnérabilités de sécurité : injections SQL, XSS, données sensibles en clair, mauvaise gestion des erreurs exposant des infos, etc. Si aucune vulnérabilité n'est détectée, retourne un tableau vide [].
+
 RÈGLES STRICTES pour qualityScore :
-- Code avec erreurs de syntaxe graves (mots-clés mal utilisés, structure invalide) → 0 à 15
+- Code avec erreurs de syntaxe graves → 0 à 15
 - Code non fonctionnel mais partiellement valide → 15 à 35
 - Code fonctionnel avec beaucoup de problèmes → 35 à 55
 - Code correct avec améliorations notables → 55 à 75
@@ -500,6 +512,7 @@ function parseAIResponse(responseText) {
   const warnings     = Array.isArray(parsed.warnings)     ? parsed.warnings     : [];
   const improvements = Array.isArray(parsed.improvements) ? parsed.improvements : [];
   const codeSmells   = Array.isArray(parsed.codeSmells)   ? parsed.codeSmells   : [];
+  const vulnerabilities = Array.isArray(parsed.vulnerabilities) ? parsed.vulnerabilities : []; 
 
   const allCodeSmells = [
     ...codeSmells,
@@ -525,6 +538,7 @@ function parseAIResponse(responseText) {
     warnings,
     improvements:    allImprovements,
     codeSmells:      allCodeSmells,
+    vulnerabilities,
     errorCount:      parseInt(parsed.errorCount)      || errors.length,
     warningCount:    parseInt(parsed.warningCount)    || warnings.length,
     conventionCount: parseInt(parsed.conventionCount) || 0,
