@@ -26,22 +26,27 @@ export default function OAuthCallback() {
     }
 
     try {
-      const user = JSON.parse(atob(userEncoded));
+  const user = JSON.parse(atob(userEncoded));
 
-      // Stocker dans localStorage (même format que login normal)
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
+  // Validation : s'assurer que l'utilisateur a bien un id
+  if (!user || !user.id) {
+    setError('Données utilisateur invalides.');
+    setTimeout(() => navigate('/login'), 3000);
+    return;
+  }
 
-      // Rediriger selon le rôle
-      if (user.role === 'admin') {
-        navigate('/admin/dashboard', { replace: true });
-      } else {
-        navigate('/dashboard', { replace: true });
-      }
-    } catch (e) {
-      setError('Erreur lors du traitement des données.');
-      setTimeout(() => navigate('/login'), 3000);
-    }
+  localStorage.setItem('token', token);
+  localStorage.setItem('user', JSON.stringify(user));
+
+  if (user.role === 'admin') {
+    navigate('/admin/dashboard', { replace: true });
+  } else {
+    navigate('/dashboard', { replace: true });
+  }
+} catch (e) {
+  setError('Erreur lors du traitement des données.');
+  setTimeout(() => navigate('/login'), 3000);
+}
   }, []);
 
   return (

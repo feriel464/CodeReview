@@ -69,7 +69,7 @@ passport.use(new GitHubStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
   try {
     const email = profile.emails?.[0]?.value || `github_${profile.id}@noemail.com`;
-    const name = profile.displayName || profile.username;
+    const name = profile.displayName || profile.username || `user_${profile.id}`;
     const githubId = String(profile.id);
     const avatar = profile.photos[0]?.value;
 

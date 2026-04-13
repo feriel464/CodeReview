@@ -40,6 +40,29 @@ api.interceptors.response.use(
 );
 
 class AuthService {
+
+
+  // Ajouter dans la classe AuthService, appeler dans le constructeur
+constructor() {
+  this._cleanupIfInvalid();
+}
+
+_cleanupIfInvalid() {
+  const token = localStorage.getItem('token');
+  const user = localStorage.getItem('user');
+  if (token && user) {
+    try {
+      const parsed = JSON.parse(user);
+      if (!parsed || !parsed.id) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
+    } catch {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
+  }
+}
   // Inscription
   async signup(name, email, password) {
     try {
@@ -86,9 +109,23 @@ class AuthService {
   }
 
   // Vérifier si l'utilisateur est connecté
-  isAuthenticated() {
-    return !!localStorage.getItem('token');
+  // Remplacer isAuthenticated() dans authService.js
+isAuthenticated() {
+  const token = localStorage.getItem('token');
+  const user = localStorage.getItem('user');
+  if (!token || !user) return false;
+  
+  try {
+    const parsed = JSON.parse(user);
+    // Un utilisateur valide doit avoir au minimum un id
+    return !!(parsed && parsed.id);
+  } catch {
+    // JSON corrompu → nettoyer et retourner false
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    return false;
   }
+}
 
   // Obtenir l'utilisateur actuel
   getCurrentUser() {
