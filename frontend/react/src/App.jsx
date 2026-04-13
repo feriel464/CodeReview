@@ -11,7 +11,7 @@ import SettingsPage from './pages/admin/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import SecurityAnalysis from './pages/SecurityAnalysis';
-
+import OAuthCallback from './pages/googlegitauth/OAuthCallback';
 function App() {
   const { isAuthenticated, isAdmin, loading } = useAuth();
 
@@ -38,7 +38,8 @@ function App() {
         path="/signup" 
         element={isAuthenticated ? <Navigate to={isAdmin ? "/admin/dashboard" : "/dashboard"} replace /> : <Signup />} 
       />
-      
+      <Route path="/oauth-callback" element={<OAuthCallback />} />
+
       {/* Routes protégées - Admin */}
       <Route 
         path="/admin/dashboard" 

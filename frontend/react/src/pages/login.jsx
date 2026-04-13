@@ -81,10 +81,7 @@ export default function Login() {
   ];
 
   useEffect(() => {
-    // Rediriger si déjà connecté
-    if (authService.isAuthenticated()) {
-      navigate('/');
-    }
+    
 
     const elements = Array.from({ length: 15 }, (_, i) => ({
       id: i,
@@ -369,16 +366,26 @@ const handleSubmit = async (e) => {
             </div>
 
             {/* Social Login Buttons */}
-            <div className="grid grid-cols-2 gap-4">
-              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group" disabled={loading}>
-                <Github className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                <span className="hidden sm:inline">GitHub</span>
-              </button>
-              <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group" disabled={loading}>
-                <Chrome className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                <span className="hidden sm:inline">Google</span>
-              </button>
-            </div>
+           <div className="grid grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => authService.loginWithGithub()}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group"
+                  disabled={loading}
+                >
+                  <Github className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                  <span className="hidden sm:inline">GitHub</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => authService.loginWithGoogle()}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium text-gray-700 group"
+                  disabled={loading}
+                >
+                  <Chrome className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                  <span className="hidden sm:inline">Google</span>
+                </button>
+              </div>
 
             {/* Terms & Privacy */}
             <p className="mt-6 text-center text-xs text-gray-500">

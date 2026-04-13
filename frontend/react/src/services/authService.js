@@ -110,6 +110,18 @@ class AuthService {
       throw error.response?.data || { message: 'Erreur de vérification du token' };
     }
   }
+
+  // Lancer le flux OAuth Google
+loginWithGoogle() {
+  window.location.href = 'http://localhost:5000/api/auth/google';
 }
+
+// Lancer le flux OAuth GitHub
+loginWithGithub() {
+  window.location.href = 'http://localhost:5000/api/auth/github';
+}
+}
+// Ajouter dans la classe AuthService
+
 
 export default new AuthService();
