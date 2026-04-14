@@ -6,7 +6,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen, activeSection, se
     { id: 'dashboard', icon: LayoutDashboard, label: 'Tableau de bord', color: 'purple' },
     { id: 'users', icon: Users, label: 'Utilisateurs', color: 'pink' },
     { id: 'reviews', icon: FileCode, label: 'Revues de code', color: 'blue' },
-    { id: 'analytics', icon: Terminal, label: 'Analytiques', color: 'green' },
+   // { id: 'analytics', icon: Terminal, label: 'Analytiques', color: 'green' },
     { id: 'settings', icon: Settings, label: 'Paramètres', color: 'orange' },
   ];
 

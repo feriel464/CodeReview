@@ -8,7 +8,6 @@ import {
 
 const API_BASE = 'http://localhost:5000/api';
 
-// ── Couleurs langages ────────────────────────────────────────
 const getLangColor = (lang) => {
   const map = {
     Python:     'bg-blue-100 text-blue-700',
@@ -41,157 +40,304 @@ const severityBadge = (sev) => {
   return 'bg-blue-100 text-blue-700 border border-blue-200';
 };
 
-// ── Génération PDF ───────────────────────────────────────────
-const generatePDF = (review) => {
-  const improvements  = Array.isArray(review.improvements)   ? review.improvements   : [];
-  const codeSmells    = Array.isArray(review.code_smells)    ? review.code_smells    : [];
+// ── Génération PDF — nouveau style ──────────────────────────
+const generatePDF = async (review) => {
+  const improvements    = Array.isArray(review.improvements)    ? review.improvements    : [];
+  const codeSmells      = Array.isArray(review.code_smells)     ? review.code_smells     : [];
   const vulnerabilities = Array.isArray(review.vulnerabilities) ? review.vulnerabilities : [];
-  const missingDocs   = Array.isArray(review.documentation?.missingDocs) ? review.documentation.missingDocs : [];
-  const metrics       = review.metrics || {};
+  const doc             = review.documentation || {};
+  const functions       = Array.isArray(doc.functions)          ? doc.functions          : [];
+  const missingDocs     = Array.isArray(doc.missingDocs)        ? doc.missingDocs        : [];
+  const metrics         = review.metrics || {};
 
   const escape = (s) => String(s || '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const scoreColor = review.score >= 80 ? '#16a34a' : review.score >= 60 ? '#d97706' : '#dc2626';
+
+  const sevIcon = (sev) => {
+    const s = (sev || '').toLowerCase();
+    if (s === 'error' || s === 'critical') return '🔴';
+    if (s === 'warning') return '🟡';
+    return '🔵';
+  };
+
+  const renderIssueRows = (items) => {
+    if (!items.length) return `<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:16px;font-style:italic;">Aucun élément détecté ✅</td></tr>`;
+    return items.map(item => `
+      <tr style="border-bottom:1px solid #f3f4f6;">
+        <td style="padding:10px 12px;font-size:12px;">${sevIcon(item.severity || 'info')} ${escape(item.message || item.title || '-')}</td>
+        <td style="padding:10px 12px;font-size:11px;color:#6b7280;">${item.line ? `Ligne ${item.line}` : '-'}</td>
+        <td style="padding:10px 12px;font-size:11px;">${escape(item.severity||'info')}</td>
+        <td style="padding:10px 12px;font-size:11px;color:#374151;font-style:italic;">${escape(item.suggestion||item.fix||item.description||'-')}</td>
+      </tr>`).join('');
+  };
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
+<title>Rapport — ${escape(review.file_name)}</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color:#1a1a2e; background:#fff; padding:40px; }
-  .header { background: linear-gradient(135deg,#7c3aed,#ec4899); color:#fff; padding:32px; border-radius:16px; margin-bottom:32px; }
-  .header h1 { font-size:26px; font-weight:800; margin-bottom:6px; }
-  .header p  { font-size:13px; opacity:.85; }
-  .score-badge { display:inline-block; background:rgba(255,255,255,.2); border-radius:50px; padding:8px 20px; font-size:28px; font-weight:900; margin-top:12px; }
-  .section { margin-bottom:28px; }
-  .section h2 { font-size:16px; font-weight:700; color:#7c3aed; border-bottom:2px solid #ede9fe; padding-bottom:8px; margin-bottom:14px; display:flex; align-items:center; gap:6px; }
-  .meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .meta-item { background:#f8f7ff; border-radius:10px; padding:12px 16px; border-left:3px solid #7c3aed; }
-  .meta-item label { font-size:11px; color:#888; text-transform:uppercase; font-weight:600; }
-  .meta-item p { font-size:14px; font-weight:700; color:#1a1a2e; margin-top:2px; }
-  .item-card { border-radius:10px; padding:12px 14px; margin-bottom:8px; border:1px solid #e5e7eb; }
-  .item-card.bug   { border-left:4px solid #ef4444; background:#fef2f2; }
-  .item-card.warn  { border-left:4px solid #f59e0b; background:#fffbeb; }
-  .item-card.info  { border-left:4px solid #3b82f6; background:#eff6ff; }
-  .item-card.smell { border-left:4px solid #f97316; background:#fff7ed; }
-  .item-card.vuln  { border-left:4px solid #8b5cf6; background:#f5f3ff; }
-  .item-card.doc   { border-left:4px solid #0ea5e9; background:#f0f9ff; }
-  .item-title { font-size:13px; font-weight:700; margin-bottom:4px; }
-  .item-meta  { font-size:11px; color:#666; }
-  .item-sugg  { font-size:12px; color:#444; margin-top:6px; font-style:italic; }
-  .code-block { background:#0f172a; color:#e2e8f0; padding:20px; border-radius:12px; font-family:'Courier New',monospace; font-size:11px; line-height:1.7; white-space:pre-wrap; word-break:break-all; max-height:400px; overflow:hidden; }
-  .metrics-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
-  .metric-box { background:#f8f7ff; border-radius:10px; padding:14px; text-align:center; border:1px solid #ede9fe; }
-  .metric-box .val { font-size:22px; font-weight:900; color:#7c3aed; }
-  .metric-box .lbl { font-size:11px; color:#888; margin-top:2px; }
-  .badge { display:inline-block; padding:2px 8px; border-radius:50px; font-size:10px; font-weight:700; }
-  .footer { text-align:center; color:#aaa; font-size:11px; margin-top:40px; border-top:1px solid #eee; padding-top:20px; }
-  .empty { color:#999; font-style:italic; font-size:13px; padding:10px 0; }
-  @media print { body { padding:20px; } }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  body { font-family: Arial, sans-serif; color:#111827; background:#ffffff; }
+  .page { max-width:900px; margin:0 auto; background:#fff; }
+
+  .cover {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4c1d95 70%, #6d28d9 100%);
+    padding: 48px;
+    color: #fff;
+  }
+  .cover-title { font-size: 32px; font-weight: 900; margin-bottom:6px; }
+  .cover-sub { font-size: 14px; opacity:.7; margin-bottom:28px; }
+  .cover-top { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:32px; }
+  .cover-badge {
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.25);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    display:inline-block;
+    margin-bottom:20px;
+  }
+  .cover-meta { display:flex; gap:32px; flex-wrap:wrap; }
+  .cover-meta-item .lbl { font-size:10px; text-transform:uppercase; opacity:.5; font-weight:600; }
+  .cover-meta-item .val { font-size:14px; font-weight:700; margin-top:2px; }
+
+  .score-box {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: 5px solid ${scoreColor};
+    display: flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+    background: rgba(255,255,255,0.1);
+  }
+  .score-box span { font-size:22px; font-weight:900; color:#fff; }
+
+  .content { padding: 0 40px 40px; }
+  .section { margin-top: 36px; }
+  .section-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #f3f4f6;
+  }
+  .section-title { font-size: 16px; font-weight: 800; color: #111827; }
+  .section-count {
+    margin-left:auto;
+    background: #f3f4f6;
+    color: #6b7280;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .info-card {
+    background: #fafafa;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .info-card .lbl { font-size: 10px; color: #9ca3af; text-transform:uppercase; font-weight:700; }
+  .info-card .val { font-size: 15px; font-weight: 800; color: #111827; margin-top: 4px; }
+
+  .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .metric-card {
+    background: #faf5ff;
+    border: 1px solid #ede9fe;
+    border-radius: 12px;
+    padding: 14px;
+    text-align: center;
+  }
+  .metric-card .num { font-size: 24px; font-weight: 900; color: #7c3aed; }
+  .metric-card .lbl { font-size: 10px; color: #9ca3af; margin-top: 2px; font-weight: 600; text-transform:uppercase; }
+
+  .issue-table { width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
+  .issue-table thead tr { background: #f9fafb; }
+  .issue-table thead th {
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+  }
+
+  .doc-coverage {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex; align-items:center; gap:16px;
+    margin-bottom: 16px;
+  }
+  .doc-pct { font-size: 36px; font-weight: 900; color: #1d4ed8; }
+
+  .code-wrap { background: #0f172a; border-radius: 12px; overflow: hidden; }
+  .code-topbar { background: #1e293b; padding: 10px 16px; display: flex; align-items:center; gap:8px; }
+  .code-dot { width:10px;height:10px;border-radius:50%; display:inline-block; }
+  .code-filename { font-family:monospace; font-size:12px; color:#94a3b8; margin-left:8px; }
+  pre.code-content {
+    padding: 20px;
+    font-family: monospace;
+    font-size: 11px;
+    line-height: 1.8;
+    color: #e2e8f0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 400px;
+    overflow: hidden;
+  }
+
+  .footer {
+    margin-top: 40px;
+    padding: 20px 40px;
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+    display: flex; align-items:center; justify-content:space-between;
+  }
+  .footer p { font-size: 11px; color: #9ca3af; }
 </style>
 </head>
 <body>
+<div class="page">
 
-<div class="header">
-  <h1>📋 Rapport d'Analyse — ${escape(review.file_name)}</h1>
-  <p>Projet : ${escape(review.project_name)} &nbsp;|&nbsp; Analysé par : ${escape(review.user)} &nbsp;|&nbsp; ${new Date(review.analyzed_at).toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}</p>
-  <div class="score-badge">Score : ${review.score}/100</div>
-</div>
+  <div class="cover">
+    <div class="cover-top">
+      <div>
+        <div class="cover-badge">📋 Rapport d'Analyse de Code</div>
+        <div class="cover-title">${escape(review.file_name)}</div>
+        <div class="cover-sub">${escape(review.project_name)} · ${new Date(review.analyzed_at).toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})}</div>
+      </div>
+      <div class="score-box"><span>${review.score}</span></div>
+    </div>
+    <div class="cover-meta">
+      <div class="cover-meta-item"><div class="lbl">Langage</div><div class="val">${escape(review.language)}</div></div>
+      <div class="cover-meta-item"><div class="lbl">Analysé par</div><div class="val">${escape(review.user)}</div></div>
+      <div class="cover-meta-item"><div class="lbl">Problèmes détectés</div><div class="val">${improvements.length + codeSmells.length + vulnerabilities.length}</div></div>
+      <div class="cover-meta-item"><div class="lbl">Score qualité</div><div class="val" style="color:${scoreColor};">${review.score}/100</div></div>
+    </div>
+  </div>
 
-<!-- META -->
-<div class="section">
-  <h2>ℹ️ Informations générales</h2>
-  <div class="meta-grid">
-    <div class="meta-item"><label>Projet</label><p>${escape(review.project_name)}</p></div>
-    <div class="meta-item"><label>Fichier</label><p>${escape(review.file_name)}</p></div>
-    <div class="meta-item"><label>Langage</label><p>${escape(review.language)}</p></div>
-    <div class="meta-item"><label>Analysé par</label><p>${escape(review.user)}</p></div>
-    <div class="meta-item"><label>Score qualité</label><p>${review.score}/100</p></div>
-    <div class="meta-item"><label>Date d'analyse</label><p>${new Date(review.analyzed_at).toLocaleDateString('fr-FR')}</p></div>
+  <div class="content">
+    <div class="section">
+      <div class="section-header">
+        <span>ℹ️</span>
+        <span class="section-title">Informations générales</span>
+      </div>
+      <div class="info-grid">
+        <div class="info-card"><div class="lbl">Projet</div><div class="val">${escape(review.project_name)}</div></div>
+        <div class="info-card"><div class="lbl">Fichier</div><div class="val">${escape(review.file_name)}</div></div>
+        <div class="info-card"><div class="lbl">Langage</div><div class="val">${escape(review.language)}</div></div>
+        <div class="info-card"><div class="lbl">Analysé par</div><div class="val">${escape(review.user)}</div></div>
+        <div class="info-card"><div class="lbl">Score</div><div class="val" style="color:${scoreColor};">${review.score}/100</div></div>
+        <div class="info-card"><div class="lbl">Date</div><div class="val">${new Date(review.analyzed_at).toLocaleDateString('fr-FR')}</div></div>
+      </div>
+    </div>
+
+
+
+    <div class="section">
+      <div class="section-header">
+        <span>⚡</span>
+        <span class="section-title">Améliorations proposées</span>
+        <span class="section-count">${improvements.length}</span>
+      </div>
+      <table class="issue-table">
+        <thead><tr><th>Message</th><th>Ligne</th><th>Sévérité</th><th>Suggestion</th></tr></thead>
+        <tbody>${renderIssueRows(improvements)}</tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <span>🔴</span>
+        <span class="section-title">Code Smells</span>
+        <span class="section-count">${codeSmells.length}</span>
+      </div>
+      <table class="issue-table">
+        <thead><tr><th>Message</th><th>Ligne</th><th>Sévérité</th><th>Suggestion</th></tr></thead>
+        <tbody>${renderIssueRows(codeSmells)}</tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <span>🛡️</span>
+        <span class="section-title">Vulnérabilités de sécurité</span>
+        <span class="section-count">${vulnerabilities.length}</span>
+      </div>
+      <table class="issue-table">
+        <thead><tr><th>Titre</th><th>CWE</th><th>Sévérité</th><th>Correction suggérée</th></tr></thead>
+        <tbody>
+          ${vulnerabilities.length === 0
+            ? `<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:16px;font-style:italic;">Aucune vulnérabilité détectée ✅</td></tr>`
+            : vulnerabilities.map(v => `
+              <tr style="border-bottom:1px solid #f3f4f6;">
+                <td style="padding:10px 12px;font-size:12px;">🛡️ ${escape(v.title||v.message||'-')}</td>
+                <td style="padding:10px 12px;font-size:11px;color:#7c3aed;">${escape(v.cwe||'-')}</td>
+                <td style="padding:10px 12px;font-size:11px;">${escape(v.severity||'high')}</td>
+                <td style="padding:10px 12px;font-size:11px;font-style:italic;">${escape(v.fix||v.description||'-')}</td>
+              </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <span>💻</span>
+        <span class="section-title">Code source</span>
+        <span class="section-count">${(review.code||'').split('\n').length} lignes</span>
+      </div>
+      <div class="code-wrap">
+        <div class="code-topbar">
+          <span class="code-dot" style="background:#ef4444;"></span>
+          <span class="code-dot" style="background:#f59e0b;"></span>
+          <span class="code-dot" style="background:#22c55e;"></span>
+          <span class="code-filename">${escape(review.file_name)}</span>
+        </div>
+        <pre class="code-content">${escape(review.code || '// Code non disponible')}</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Rapport généré le ${new Date().toLocaleDateString('fr-FR', {day:'numeric',month:'long',year:'numeric'})}</p>
+    <p>Score : <strong style="color:${scoreColor};">${review.score}/100</strong></p>
   </div>
 </div>
 
-<!-- METRICS -->
-${Object.keys(metrics).length > 0 ? `
-<div class="section">
-  <h2>📊 Métriques</h2>
-  <div class="metrics-grid">
-    ${metrics.lines         !== undefined ? `<div class="metric-box"><div class="val">${metrics.lines}</div><div class="lbl">Lignes totales</div></div>` : ''}
-    ${metrics.codeLines     !== undefined ? `<div class="metric-box"><div class="val">${metrics.codeLines}</div><div class="lbl">Lignes de code</div></div>` : ''}
-    ${metrics.functions     !== undefined ? `<div class="metric-box"><div class="val">${metrics.functions}</div><div class="lbl">Fonctions</div></div>` : ''}
-    ${metrics.classes       !== undefined ? `<div class="metric-box"><div class="val">${metrics.classes}</div><div class="lbl">Classes</div></div>` : ''}
-    ${metrics.emptyLines    !== undefined ? `<div class="metric-box"><div class="val">${metrics.emptyLines}</div><div class="lbl">Lignes vides</div></div>` : ''}
-    ${metrics.characters    !== undefined ? `<div class="metric-box"><div class="val">${metrics.characters}</div><div class="lbl">Caractères</div></div>` : ''}
-  </div>
-</div>` : ''}
-
-<!-- IMPROVEMENTS -->
-<div class="section">
-  <h2>⚡ Améliorations proposées (${improvements.length})</h2>
-  ${improvements.length === 0 ? '<p class="empty">Aucune amélioration détectée</p>' :
-    improvements.map(i => {
-      const sev = (i.severity||'').toLowerCase();
-      const cls = (sev==='error'||sev==='critical') ? 'bug' : sev==='warning' ? 'warn' : 'info';
-      return `<div class="item-card ${cls}">
-        <div class="item-title">${escape(i.message)}</div>
-        <div class="item-meta">Ligne ${i.line || '?'} &nbsp;·&nbsp; Sévérité : ${escape(i.severity || 'info')} &nbsp;·&nbsp; Type : ${escape(i.type || '-')}</div>
-        ${i.suggestion ? `<div class="item-sugg">💡 ${escape(i.suggestion)}</div>` : ''}
-      </div>`;
-    }).join('')}
-</div>
-
-<!-- CODE SMELLS -->
-<div class="section">
-  <h2>🔴 Code Smells (${codeSmells.length})</h2>
-  ${codeSmells.length === 0 ? '<p class="empty">Aucun code smell détecté</p>' :
-    codeSmells.map(s => `<div class="item-card smell">
-      <div class="item-title">${escape(s.message)}</div>
-      <div class="item-meta">Ligne ${s.line || '?'} &nbsp;·&nbsp; ${escape(s.severity || 'warning')}</div>
-      ${s.suggestion ? `<div class="item-sugg">💡 ${escape(s.suggestion)}</div>` : ''}
-    </div>`).join('')}
-</div>
-
-<!-- VULNERABILITÉS -->
-<div class="section">
-  <h2>🛡️ Vulnérabilités (${vulnerabilities.length})</h2>
-  ${vulnerabilities.length === 0 ? '<p class="empty">Aucune vulnérabilité détectée</p>' :
-    vulnerabilities.map(v => `<div class="item-card vuln">
-      <div class="item-title">${escape(v.title || v.message)}</div>
-      <div class="item-meta">${escape(v.severity || 'high')} ${v.cwe ? `&nbsp;·&nbsp; ${escape(v.cwe)}` : ''}</div>
-      ${v.description ? `<div class="item-sugg">${escape(v.description)}</div>` : ''}
-      ${v.fix ? `<div class="item-sugg">🔧 ${escape(v.fix)}</div>` : ''}
-    </div>`).join('')}
-</div>
-
-<!-- DOCUMENTATION -->
-<div class="section">
-  <h2>📝 Documentation manquante (${missingDocs.length})</h2>
-  ${missingDocs.length === 0 ? '<p class="empty">Documentation complète ✅</p>' :
-    missingDocs.map(d => `<div class="item-card doc">
-      <div class="item-title">${escape(d.name || d.type || 'Élément')}</div>
-      <div class="item-meta">Ligne ${d.line || '?'} &nbsp;·&nbsp; Type : ${escape(d.type || '-')}</div>
-      ${d.suggestion ? `<div class="item-sugg">💡 ${escape(d.suggestion)}</div>` : ''}
-    </div>`).join('')}
-</div>
-
-<!-- CODE SOURCE -->
-<div class="section">
-  <h2>💻 Code source</h2>
-  <div class="code-block">${escape(review.code || '// Code non disponible')}</div>
-</div>
-
-<div class="footer">
-  Rapport généré automatiquement &nbsp;·&nbsp; ${new Date().toLocaleDateString('fr-FR')} &nbsp;·&nbsp; CodeReview Admin
-</div>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script>
+  window.onload = function() {
+    const element = document.querySelector('.page');
+    const opt = {
+      margin:       [10, 10, 10, 10],
+      filename:     '${escape(review.file_name)}_rapport.pdf',
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { 
+        scale: 2, 
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false
+      },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+    html2pdf().set(opt).from(element).save().then(() => {
+      window.close();
+    });
+  };
+</script>
 </body>
 </html>`;
 
   const win = window.open('', '_blank');
   win.document.write(html);
   win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 500);
 };
 
 // ── StatCard ─────────────────────────────────────────────────
@@ -218,28 +364,34 @@ const DetailModal = ({ review, onClose, sidebarOpen}) => {
   const improvements    = Array.isArray(review.improvements)    ? review.improvements    : [];
   const codeSmells      = Array.isArray(review.code_smells)     ? review.code_smells     : [];
   const vulnerabilities = Array.isArray(review.vulnerabilities) ? review.vulnerabilities : [];
-  const missingDocs     = Array.isArray(review.documentation?.missingDocs) ? review.documentation.missingDocs : [];
+  const doc             = review.documentation || {};
+  const functions       = Array.isArray(doc.functions)          ? doc.functions          : [];
+  const missingDocs     = Array.isArray(doc.missingDocs)        ? doc.missingDocs        : [];
+
+  // ✅ FIX: count = functions.length (fonctions analysées) + missingDocs.length
+  const docCount = functions.length + missingDocs.length;
 
   const tabs = [
     { key: 'improvements',    label: 'Améliorations',  count: improvements.length,    icon: Zap,         color: 'text-yellow-600' },
     { key: 'smells',          label: 'Code Smells',    count: codeSmells.length,      icon: AlertCircle, color: 'text-orange-600' },
     { key: 'vulnerabilities', label: 'Vulnérabilités', count: vulnerabilities.length, icon: Shield,      color: 'text-purple-600' },
-    { key: 'documentation',   label: 'Documentation',  count: missingDocs.length,     icon: FileText,    color: 'text-blue-600'   },
+    { key: 'documentation',   label: 'Documentation',  count: docCount,               icon: FileText,    color: 'text-blue-600'   },
     { key: 'code',            label: 'Code source',    count: null,                   icon: Code,        color: 'text-gray-600'   },
   ];
 
   return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pl-80 bg-black/60 backdrop-blur-sm"     style={{ paddingLeft: sidebarOpen ? '288px' : '80px' }}
-              onClick={onClose}>
-          <div 
-            className="bg-white rounded-2xl shadow-2xl w-full flex flex-col overflow-hidden"
-            style={{ 
-              maxWidth: sidebarOpen ? 'calc(100vw - 340px)' : 'calc(100vw - 120px)',
-              maxHeight: '75vh',
-              height: '75vh'
-            }}
-            onClick={e => e.stopPropagation()}
-          >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      style={{ paddingLeft: sidebarOpen ? '288px' : '80px' }}
+      onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full flex flex-col overflow-hidden"
+        style={{
+          maxWidth: sidebarOpen ? 'calc(100vw - 340px)' : 'calc(100vw - 120px)',
+          maxHeight: '75vh',
+          height: '75vh'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4 text-white flex items-start justify-between flex-shrink-0">
           <div>
@@ -254,7 +406,7 @@ const DetailModal = ({ review, onClose, sidebarOpen}) => {
         </div>
 
         {/* Tabs */}
-<div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto flex-shrink-0">
+        <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto flex-shrink-0">
           {tabs.map(tab => (
             <button
               key={tab.key}
@@ -278,7 +430,6 @@ const DetailModal = ({ review, onClose, sidebarOpen}) => {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 min-h-0">
-
 
           {/* Améliorations */}
           {activeTab === 'improvements' && (
@@ -337,28 +488,106 @@ const DetailModal = ({ review, onClose, sidebarOpen}) => {
           )}
 
           {/* Documentation */}
-          {activeTab === 'documentation' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl border border-blue-200 mb-4">
-                <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-blue-600"/>
-                </div>
-                <div>
-                  <p className="font-bold text-blue-900">Couverture documentation</p>
-                  <p className="text-2xl font-black text-blue-700">{review.documentation?.coverage ?? 0}%</p>
-                </div>
-              </div>
-              {missingDocs.length === 0
-                ? <p className="text-center text-gray-400 py-8">Documentation complète ✅</p>
-                : missingDocs.map((item, i) => (
-                  <div key={i} className="p-4 rounded-xl border border-blue-200 bg-blue-50">
-                    <p className="font-semibold text-sm text-blue-900">{item.name || item.type || 'Élément'}</p>
-                    <p className="text-xs text-blue-600 mt-1">Ligne {item.line || '?'} &nbsp;·&nbsp; {item.type}</p>
-                    {item.suggestion && <p className="text-xs mt-2 italic text-blue-700">💡 {item.suggestion}</p>}
+          {activeTab === 'documentation' && (() => {
+            return (
+              <div className="space-y-4">
+                {/* Couverture */}
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                  <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-blue-600"/>
                   </div>
-                ))}
-            </div>
-          )}
+                  <div className="flex-1">
+                    <p className="font-bold text-blue-900">Couverture documentation</p>
+                    <p className="text-2xl font-black text-blue-700">{doc.coverage ?? 0}%</p>
+                  </div>
+                  <div className="text-right text-sm text-blue-600">
+                    <p className="font-semibold">{functions.length} fonction(s) analysée(s)</p>
+                    <p className="text-xs text-blue-400">{missingDocs.length} doc(s) manquante(s)</p>
+                  </div>
+                </div>
+
+                {/* Fonctions analysées */}
+                {functions.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                      Fonctions analysées ({functions.length})
+                    </h3>
+                    {functions.map((fn, i) => (
+                      <div key={i} className="border border-gray-200 rounded-xl overflow-hidden">
+                        <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded font-mono text-sm font-bold">
+                              {fn.name}
+                            </span>
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">
+                              {fn.type || 'function'}
+                            </span>
+                          </div>
+                          {fn.line && <span className="text-xs text-gray-400">Ligne {fn.line}</span>}
+                        </div>
+                        <div className="p-4 space-y-3">
+                          {fn.description && (
+                            <div>
+                              <p className="text-xs font-bold text-gray-500 uppercase mb-1">Description</p>
+                              <p className="text-sm text-gray-700 leading-relaxed">{fn.description}</p>
+                            </div>
+                          )}
+                          {Array.isArray(fn.params) && fn.params.length > 0 && (
+                            <div>
+                              <p className="text-xs font-bold text-gray-500 uppercase mb-2">Paramètres</p>
+                              <div className="flex flex-wrap gap-2">
+                                {fn.params.map((p, j) => (
+                                  <div key={j} className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
+                                    <span className="font-mono text-xs font-bold text-purple-700">{p.name}</span>
+                                    {p.type && <span className="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{p.type}</span>}
+                                    {p.description && <span className="text-xs text-gray-500">{p.description}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {fn.returns && (
+                            <div>
+                              <p className="text-xs font-bold text-gray-500 uppercase mb-1">Retourne</p>
+                              <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800">{fn.returns}</div>
+                            </div>
+                          )}
+                          {fn.example && (
+                            <div>
+                              <p className="text-xs font-bold text-gray-500 uppercase mb-1">Exemple</p>
+                              <pre className="bg-gray-900 text-gray-100 rounded-lg px-4 py-3 text-xs font-mono overflow-x-auto">
+                                <code>{fn.example}</code>
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Docs manquantes */}
+                {missingDocs.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-bold text-orange-600 uppercase tracking-wide">
+                      Documentation manquante ({missingDocs.length})
+                    </h3>
+                    {missingDocs.map((item, i) => (
+                      <div key={i} className="p-4 rounded-xl border border-orange-200 bg-orange-50">
+                        <p className="font-semibold text-sm text-orange-900">{item.name || item.type || 'Élément'}</p>
+                        <p className="text-xs text-orange-600 mt-1">Ligne {item.line || '?'} · {item.type}</p>
+                        {item.suggestion && <p className="text-xs mt-2 italic text-orange-700">💡 {item.suggestion}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {functions.length === 0 && missingDocs.length === 0 && (
+                  <p className="text-center text-gray-400 py-8">Aucune donnée de documentation disponible</p>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Code source */}
           {activeTab === 'code' && (
@@ -415,7 +644,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
 
   const LIMIT = 10;
 
-  // ── Fetch stats ──────────────────────────────────────────
   const fetchStats = useCallback(async () => {
     try {
       const res  = await fetch(`${API_BASE}/code-reviews/stats`);
@@ -424,7 +652,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
     } catch (e) { console.error(e); }
   }, []);
 
-  // ── Fetch reviews ────────────────────────────────────────
   const fetchReviews = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -451,7 +678,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
   useEffect(() => { setPage(1); },  [searchTerm, filterLanguage]);
   useEffect(() => { fetchReviews(); }, [fetchReviews]);
 
-  // ── View detail ──────────────────────────────────────────
   const handleView = async (review) => {
     setLoadingDetail(true);
     try {
@@ -462,7 +688,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
     finally { setLoadingDetail(false); }
   };
 
-  // ── Delete ───────────────────────────────────────────────
   const handleDelete = async (id) => {
     try {
       await fetch(`${API_BASE}/code-reviews/${id}`, { method: 'DELETE' });
@@ -474,14 +699,11 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
 
   return (
     <div className="animate-fade-in">
-
-      {/* Titre */}
       <div className="mb-6 lg:mb-8">
         <h1 className="text-2xl lg:text-4xl font-bold text-gray-900 mb-1">Revues de Code</h1>
         <p className="text-sm text-gray-600">Historique des analyses effectuées</p>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-6 mb-6 lg:mb-8">
         <StatCard icon={FileCode}    title="Total analyses"  value={stats.total}      change={15.3} gradient="from-purple-500 to-purple-600" trend="up"/>
         <StatCard icon={CheckCircle} title="Analysées"       value={stats.analyzed}   change={8.7}  gradient="from-green-500 to-green-600"   trend="up"/>
@@ -489,7 +711,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
         <StatCard icon={Zap}         title="Score moyen"     value={`${stats.avgScore}%`} change={5.2} gradient="from-blue-500 to-blue-600" trend="up"/>
       </div>
 
-      {/* Filtres */}
       <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-xl p-4 lg:p-6 mb-6 lg:mb-8">
         <div className="flex flex-col gap-3">
           <div className="relative">
@@ -520,7 +741,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
         </div>
       </div>
 
-      {/* Erreur */}
       {error && (
         <div className="mb-6 bg-red-50 border-2 border-red-200 rounded-2xl p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500"/>
@@ -529,7 +749,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
         </div>
       )}
 
-      {/* Tableau */}
       <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-xl overflow-hidden">
         <div className="px-6 py-4 border-b-2 border-gray-200 bg-gradient-to-r from-purple-50 to-pink-50 flex items-center justify-between">
           <div>
@@ -611,7 +830,6 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
           </div>
         )}
 
-        {/* Pagination */}
         {pagination.totalPages > 1 && (
           <div className="px-6 py-4 border-t-2 border-gray-200 bg-gray-50 flex items-center justify-between">
             <p className="text-sm text-gray-600">
@@ -635,10 +853,8 @@ export default function CodeReviewsPage({ sidebarOpen = true }) {
         )}
       </div>
 
-      {/* Modale détail */}
       {selectedReview && <DetailModal review={selectedReview} sidebarOpen={sidebarOpen} onClose={() => setSelectedReview(null)}/>}
 
-      {/* Confirm suppression */}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)}>
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>

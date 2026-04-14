@@ -173,7 +173,7 @@ export default function UsersPage() {
       const method = editingUser ? 'PUT' : 'POST';
       const body   = editingUser
         ? { name: formData.name, email: formData.email, role: formData.role }
-        : { name: formData.name, email: formData.email, role: formData.role, password_hash: 'temp_hash' };
+        : { name: formData.name, email: formData.email, role: formData.role };
 
       const res = await fetch(url, {
         method,
