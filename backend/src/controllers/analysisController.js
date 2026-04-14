@@ -546,7 +546,94 @@ function generateDocumentation(code, language, analysis) {
       : []
   };
 }
-
+exports.getHistoryItemDetails = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId        = req.user?.id;
+    const ipAddress     = req.ip || req.connection.remoteAddress;
+ 
+    // ── Vérification d'accès ────────────────────────────────
+    let ownerCheck;
+    if (userId) {
+      ownerCheck = await pool.query(
+        'SELECT id FROM projects WHERE id = $1 AND user_id = $2',
+        [projectId, userId]
+      );
+    } else {
+      ownerCheck = await pool.query(
+        'SELECT id FROM projects WHERE id = $1 AND is_guest = true AND guest_ip = $2',
+        [projectId, ipAddress]
+      );
+    }
+ 
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Projet non trouvé ou accès refusé',
+      });
+    }
+ 
+    // ── Récupération des détails ────────────────────────────
+    const result = await pool.query(
+      `SELECT
+         ar.id              AS analysis_id,
+         ar.quality_score,
+         ar.improvements,
+         ar.code_smells,
+         ar.documentation,
+         ar.metrics,
+         ar.vulnerabilities,
+         ar.analyzed_at,
+         cv.programming_language,
+         cv.file_name,
+         cv.code,
+         p.name             AS project_name,
+         p.created_at
+       FROM projects p
+       JOIN code_versions cv      ON cv.project_id        = p.id
+       LEFT JOIN analysis_results ar ON ar.code_version_id = cv.id
+       WHERE p.id = $1
+       ORDER BY cv.version_number DESC
+       LIMIT 1`,
+      [projectId]
+    );
+ 
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Aucune analyse trouvée pour ce projet',
+      });
+    }
+ 
+    const row = result.rows[0];
+ 
+    res.json({
+      success: true,
+      data: {
+        analysis_id:          row.analysis_id,
+        quality_score:        row.quality_score,
+        improvements:         row.improvements    || [],
+        code_smells:          row.code_smells     || [],
+        documentation:        row.documentation   || { coverage: 0, functions: [], missingDocs: [] },
+        metrics:              row.metrics         || {},
+        vulnerabilities:      row.vulnerabilities || [],
+        analyzed_at:          row.analyzed_at,
+        programming_language: row.programming_language,
+        file_name:            row.file_name,
+        project_name:         row.project_name,
+        created_at:           row.created_at,
+      },
+    });
+ 
+  } catch (error) {
+    console.error('❌ Erreur getHistoryItemDetails:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des détails',
+      error:   error.message,
+    });
+  }
+};
 // ─────────────────────────────────────────────────────────────
 //  GET /api/analyze/history
 // ─────────────────────────────────────────────────────────────

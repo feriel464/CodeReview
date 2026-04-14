@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import UserMenu from '../../components/UserMenu';
 import axios from 'axios';
-
+import AnalysisDetailModal from '../User/AnalysisDetailModal';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // ─── Couleur & label selon le score ─────────────────────────
@@ -144,6 +144,7 @@ export default function HistoryPage() {
   const [deleteModal, setDeleteModal]        = useState(null); // null | { count, ids }
   const [deleteLoading, setDeleteLoading]   = useState(false);
   const [toast, setToast]                   = useState(null);
+  const [detailItem, setDetailItem] = useState(null);
 
   // Filtres
   const [search, setSearch]                 = useState('');
@@ -460,10 +461,10 @@ export default function HistoryPage() {
                 return (
                   <div
                     key={item.project_id}
-                    onClick={() => {
-                      if (selectMode) { toggleSelect(item.project_id); return; }
-                      navigate(`/analyze/${item.project_id}`);
-                    }}
+                     onClick={() => {
+                        if (selectMode) { toggleSelect(item.project_id); return; }
+                        setDetailItem(item);  // ← ouvre le popup au lieu de naviguer directement
+                      }}
                     className={`group relative bg-white/90 backdrop-blur-sm rounded-2xl border-2 transition-all cursor-pointer
                       ${isSelected
                         ? 'border-purple-400 shadow-lg shadow-purple-100 scale-[1.01]'
@@ -531,11 +532,10 @@ export default function HistoryPage() {
                           <button
                             onClick={e => {
                               e.stopPropagation();
-                              navigate(`/analyze/${item.project_id}`);
+                              setDetailItem(item);  // ← ouvre le popup au lieu de naviguer
                             }}
                             className="p-2 rounded-xl text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-all"
-                            title="Voir les détails"
-                          >
+                            title="Voir les détails">
                             <ChevronRight className="w-4 h-4" />
                           </button>
                         </div>
@@ -587,7 +587,13 @@ export default function HistoryPage() {
           loading={deleteLoading}
         />
       )}
-
+  {detailItem && (
+    <AnalysisDetailModal
+      item={detailItem}
+      onClose={() => setDetailItem(null)}
+      onViewFull={() => navigate(`/analyze/${detailItem.project_id}`)}
+    />
+  )}
       {/* ── Toast ─────────────────────────────────────────── */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-white text-sm font-medium animate-slide-up ${

@@ -14,7 +14,7 @@ export default function AppRoutes() {
       <Route path="/" element={<CodeReview />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
-      
+
       {/* Route Admin - Seulement accessible aux admins */}
       <Route 
         path="/admin/dashboard" 

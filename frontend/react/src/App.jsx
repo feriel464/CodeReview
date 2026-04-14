@@ -12,6 +12,8 @@ import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import SecurityAnalysis from './pages/SecurityAnalysis';
 import OAuthCallback from './pages/googlegitauth/OAuthCallback';
+import ResetPassword from './pages/ResetPassword';
+
 function App() {
   const { isAuthenticated, isAdmin, loading } = useAuth();
 
@@ -39,6 +41,7 @@ function App() {
         element={isAuthenticated ? <Navigate to={isAdmin ? "/admin/dashboard" : "/dashboard"} replace /> : <Signup />} 
       />
       <Route path="/oauth-callback" element={<OAuthCallback />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       {/* Routes protégées - Admin */}
       <Route 

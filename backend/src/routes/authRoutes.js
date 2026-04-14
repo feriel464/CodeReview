@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require('../controllers/Authcontroller');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const passport = require('../config/passport');
+;
 
 // Route d'inscription
 router.post('/signup', authController.signup);
@@ -12,6 +13,8 @@ router.post('/login', authController.login);
 
 // Route de déconnexion (protégée)
 router.post('/logout', authMiddleware, authController.logout);
+router.post('/forgot-password', authController.forgotPassword);
+router.post('/reset-password', authController.resetPassword);
 
 // Route pour vérifier le token (protégée)
 router.get('/verify', authMiddleware, authController.verifyToken);

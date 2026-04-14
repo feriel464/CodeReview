@@ -1,7 +1,8 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
-
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 // Fonction pour générer un token JWT
 const generateToken = (userId, role) => {
   return jwt.sign(
@@ -220,10 +221,132 @@ const verifyToken = async (req, res) => {
     });
   }
 };
+// Transporter email (configure avec ton service)
+// ✅ Après (avec tes variables .env existantes)
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: false, // false pour le port 587 (STARTTLS)
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
 
+// Mot de passe oublié
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email requis' });
+    }
+
+    const result = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    // Toujours retourner 200 pour ne pas révéler si l'email existe
+    if (result.rows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'Si cet email existe, un lien de réinitialisation a été envoyé.'
+      });
+    }
+
+    const user = result.rows[0];
+
+    // Générer le token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Sauvegarder en DB
+    await pool.query(
+      'UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE id = $3',
+      [hashedToken, expires, user.id]
+    );
+
+    // Lien de reset
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+    // Envoyer l'email
+    await transporter.sendMail({
+      from: `"CodeReview" <${process.env.SMTP_USER}>`,
+      to: user.email,
+      subject: 'Réinitialisation de votre mot de passe',
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto;">
+          <h2>Réinitialisation du mot de passe</h2>
+          <p>Bonjour ${user.name},</p>
+          <p>Vous avez demandé une réinitialisation de votre mot de passe. Cliquez sur le lien ci-dessous (valable 15 minutes) :</p>
+          <a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background:#7C3AED;color:white;border-radius:8px;text-decoration:none;">
+            Réinitialiser mon mot de passe
+          </a>
+          <p style="margin-top:16px;color:#666;">Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
+        </div>
+      `
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Si cet email existe, un lien de réinitialisation a été envoyé.'
+    });
+
+  } catch (error) {
+    console.error('Erreur forgotPassword:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// Réinitialiser le mot de passe
+const resetPassword = async (req, res) => {
+  const { token, password } = req.body;
+
+  try {
+    if (!token || !password) {
+      return res.status(400).json({ success: false, message: 'Token et mot de passe requis' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Le mot de passe doit contenir au moins 8 caractères' });
+    }
+
+    // Hasher le token reçu pour comparer avec la DB
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const result = await pool.query(
+      'SELECT * FROM users WHERE reset_token = $1 AND reset_token_expires > NOW()',
+      [hashedToken]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'Token invalide ou expiré' });
+    }
+
+    const user = result.rows[0];
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Mettre à jour le mot de passe et effacer le token
+    await pool.query(
+      'UPDATE users SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL WHERE id = $2',
+      [hashedPassword, user.id]
+    );
+
+    res.status(200).json({ success: true, message: 'Mot de passe réinitialisé avec succès' });
+
+  } catch (error) {
+    console.error('Erreur resetPassword:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
 module.exports = {
   signup,
   login,
   logout,
-  verifyToken
+  verifyToken, 
+  forgotPassword,   
+  resetPassword
 };

@@ -14,7 +14,10 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
-
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotStatus, setForgotStatus] = useState('idle'); // 'idle' | 'loading' | 'sent' | 'error'
+  const [forgotError, setForgotError] = useState('');
   const translations = {
     fr: {
       welcome: 'Bienvenue sur',
@@ -93,7 +96,33 @@ export default function Login() {
     }));
     setFloatingElements(elements);
   }, [navigate]);
+const handleForgotPassword = async () => {
+  if (!forgotEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail)) {
+    setForgotError('Veuillez entrer une adresse email valide.');
+    return;
+  }
+  setForgotStatus('loading');
+  setForgotError('');
 
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const res = await fetch(`${API_URL}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: forgotEmail })
+    });
+    const data = await res.json();
+    if (data.success) {
+      setForgotStatus('sent');
+    } else {
+      setForgotError(data.message || 'Erreur lors de l\'envoi.');
+      setForgotStatus('idle');
+    }
+  } catch {
+    setForgotError('Erreur réseau. Réessayez.');
+    setForgotStatus('idle');
+  }
+};
 // src/pages/Login.jsx - VERSION MISE À JOUR
 // Remplacez seulement la fonction handleSubmit dans votre fichier Login.jsx existant
 
@@ -335,6 +364,7 @@ const handleSubmit = async (e) => {
               <div className="flex justify-end">
                 <button
                   type="button"
+                  onClick={() => setShowForgotModal(true)}
                   className="text-sm text-purple-600 hover:text-purple-700 font-semibold transition-colors"
                   disabled={loading}
                 >
@@ -401,7 +431,79 @@ const handleSubmit = async (e) => {
           </div>
         </div>
       </div>
+{showForgotModal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+    <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md animate-fade-in">
+      {forgotStatus !== 'sent' ? (
+        <>
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+              <Mail className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">Mot de passe oublié ?</h3>
+              <p className="text-sm text-gray-500">Entrez votre email pour recevoir un lien</p>
+            </div>
+          </div>
 
+          <div className="mb-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Adresse email</label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                className="w-full pl-11 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white outline-none transition-all"
+                placeholder="exemple@email.com"
+                disabled={forgotStatus === 'loading'}
+              />
+            </div>
+          </div>
+
+          {forgotError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <p className="text-sm text-red-700">{forgotError}</p>
+            </div>
+          )}
+
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={() => { setShowForgotModal(false); setForgotEmail(''); setForgotStatus('idle'); setForgotError(''); }}
+              className="flex-1 py-3 border-2 border-gray-200 rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleForgotPassword}
+              disabled={forgotStatus === 'loading'}
+              className="flex-2 flex-grow py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50"
+            >
+              {forgotStatus === 'loading' ? 'Envoi...' : 'Envoyer le lien'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-4">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Email envoyé !</h3>
+          <p className="text-gray-500 text-sm mb-6">
+            Vérifiez votre boîte mail. Le lien est valable <strong>15 minutes</strong>.
+          </p>
+          <button
+            onClick={() => { setShowForgotModal(false); setForgotEmail(''); setForgotStatus('idle'); }}
+            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium"
+          >
+            Retour à la connexion
+          </button>
+        </div>
+      )}
+    </div>
+  </div>
+)}
       <style jsx>{`
         @keyframes float-slow {
           0%, 100% {
