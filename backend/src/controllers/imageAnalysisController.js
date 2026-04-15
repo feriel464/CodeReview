@@ -3,6 +3,7 @@ const cloudinary = require('../config/cloudinary');
 const axios = require('axios');
 const FormData = require('form-data');
 const streamifier = require('streamifier');
+const { performCodeAnalysis } = require('../controllers/analysisController');
 
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -46,8 +47,6 @@ const uploadToCloudinary = (buffer) => {
 function reconstructCleanCode(ocrCode) {
   const lines = ocrCode.split('\n');
   const cleaned = lines.map(line => {
-
-    // ✅ EXISTANT (garder)
     line = line.replace(/\bAPI\s+KEY\b/,    'API_KEY');
     line = line.replace(/\bDB\s+PASS\w+\b/, 'DB_PASSWORD');
     line = line.replace(/os\.\s+system\s*\(/, 'os.system(');
@@ -55,31 +54,18 @@ function reconstructCleanCode(ocrCode) {
     line = line.replace(/WHERE name = (\w+)$/, "WHERE name = '\" + $1 + \"'");
     line = line.replace(/cursor\.\s+fetchone\s*\(\s*\)/, 'cursor.fetchone()');
     line = line.replace(/"rm -rf \w+\s*\+/, '"rm -rf " +');
-
-    // ✅ NOUVEAU : réparer const/let/var sans "="
-    // "const unusedVariable 42" → "const unusedVariable = 42"
     line = line.replace(
       /\b(const|let|var)\s+(\w+)\s+(?!=\s*)([0-9"'`\[{(])/,
       '$1 $2 = $3'
     );
-
-    // ✅ NOUVEAU : réparer opérateur * manquant entre deux identifiants
-    // "price quantity" dans un contexte d'affectation → "price * quantity"
     line = line.replace(
       /\b(const|let|var)\s+(\w+)\s*=\s*(\w+)\s+(\w+)\s*$/,
       '$1 $2 = $3 * $4'
     );
-
-    // ✅ NOUVEAU : réparer console . log → console.log
     line = line.replace(/console\s*\.\s*log\s*\(/, 'console.log(');
-
-    // ✅ NOUVEAU : supprimer "I" parasite en fin de ligne (artefact OCR)
     line = line.replace(/\s+I\s*$/, '');
-
-    // ✅ EXISTANT
     const quoteCount = (line.match(/"/g) || []).length;
     if (quoteCount % 2 !== 0) line = line + '"';
-
     return line;
   });
   return cleaned.join('\n');
@@ -93,14 +79,12 @@ function analyzeCodeLocally(code, language) {
   const improvements = [];
   const codeSmells = [];
 
-  // ✅ AJOUT : patterns robustes même si OCR rate = ou *
   const secretKeywords = ['api_key', 'api key', 'password', 'db_password',
                           'secret', 'token', 'passwd'];
 
   lines.forEach((line, i) => {
     const lower = line.toLowerCase();
 
-    // ── Secrets hardcodés ──────────────────────────────────────────
     if (secretKeywords.some(k => lower.includes(k)) &&
         (line.includes('"') || line.includes("'"))) {
       improvements.push({
@@ -111,8 +95,6 @@ function analyzeCodeLocally(code, language) {
       });
     }
 
-    // ── var au lieu de let/const ───────────────────────────────────
-    // ✅ NOUVEAU : détecte "var " même sans = après (OCR le rate souvent)
     if (/\bvar\s+\w+/.test(line)) {
       improvements.push({
         line: i + 1,
@@ -122,8 +104,6 @@ function analyzeCodeLocally(code, language) {
       });
     }
 
-    // ── Variables déclarées mais inutilisées ───────────────────────
-    // ✅ NOUVEAU
     const unusedMatch = line.match(/\b(?:const|let|var)\s+(\w+)/);
     if (unusedMatch) {
       const varName = unusedMatch[1];
@@ -137,8 +117,6 @@ function analyzeCodeLocally(code, language) {
       }
     }
 
-    // ── Trop de paramètres ─────────────────────────────────────────
-    // ✅ NOUVEAU
     const funcMatch = line.match(/function\s+\w+\s*\(([^)]+)\)/);
     if (funcMatch) {
       const params = funcMatch[1].split(',').length;
@@ -152,8 +130,6 @@ function analyzeCodeLocally(code, language) {
       }
     }
 
-    // ── console.log d'une variable non définie ─────────────────────
-    // ✅ NOUVEAU : détecte undefinedVariable / variables inconnues
     const consoleMatch = line.match(/console\s*\.\s*log\s*\(\s*(\w+)\s*\)/);
     if (consoleMatch) {
       const loggedVar = consoleMatch[1];
@@ -170,8 +146,6 @@ function analyzeCodeLocally(code, language) {
       }
     }
 
-    // ── Imbrication excessive ──────────────────────────────────────
-    // ✅ NOUVEAU
     const depth = (line.match(/if\s*\(/g) || []).length;
     if (depth >= 3) {
       codeSmells.push({
@@ -181,7 +155,6 @@ function analyzeCodeLocally(code, language) {
       });
     }
 
-    // ── SQL injection ──────────────────────────────────────────────
     if (lower.includes('select') && lower.includes('where') &&
         (line.includes('+') || lower.includes('input'))) {
       improvements.push({
@@ -192,7 +165,6 @@ function analyzeCodeLocally(code, language) {
       });
     }
 
-    // ── Command injection ──────────────────────────────────────────
     if ((lower.includes('os.system') || lower.includes('os system')) &&
         (line.includes('+') || line.includes('filename'))) {
       improvements.push({
@@ -203,7 +175,6 @@ function analyzeCodeLocally(code, language) {
       });
     }
 
-    // ── bare except / print ───────────────────────────────────────
     if (/except\s*:/.test(line)) {
       codeSmells.push({ line: i + 1, message: 'Exception générique (bare except)', severity: 'warning' });
     }
@@ -212,13 +183,10 @@ function analyzeCodeLocally(code, language) {
     }
   });
 
-  // ── Score réaliste ─────────────────────────────────────────────
   const errorCount   = improvements.filter(i => i.severity === 'error').length;
   const warningCount = improvements.filter(i => i.severity === 'warning').length;
-  
-  // ✅ CORRECTION : pénalités plus fortes pour avoir un score réaliste
   const score = Math.max(5, 100 - errorCount * 20 - warningCount * 8 - codeSmells.length * 4);
-  
+
   const summary = improvements.length > 0
     ? `${improvements.length} problème(s) détecté(s) : ${improvements.map(i => i.message).join(', ')}`
     : 'Aucun problème détecté (analyse locale)';
@@ -307,7 +275,7 @@ async function analyzeSecurityML(code, language) {
 }
 
 // ════════════════════════════════════════════════════
-// Contrôleur principal
+// Contrôleur principal — analyzeFromImage
 // ════════════════════════════════════════════════════
 exports.analyzeFromImage = async (req, res) => {
   try {
@@ -365,9 +333,9 @@ exports.analyzeFromImage = async (req, res) => {
       });
     }
 
-    const extractedCode = ocrData.code;
-    const ocrConfidence = ocrData.confidence;
-    const ocrMethod     = ocrData.ocr_method;
+    const extractedCode   = ocrData.code;
+    const ocrConfidence   = ocrData.confidence;
+    const ocrMethod       = ocrData.ocr_method;
 
     console.log(`✅ OCR OK — ${extractedCode.length} chars | méthode: ${ocrMethod} | confiance: ${ocrConfidence}%`);
 
@@ -380,11 +348,11 @@ exports.analyzeFromImage = async (req, res) => {
       });
     }
 
-    // ── 3. Analyse qualité puis sécurité ─────────────────
-    console.log('🤖 Analyse qualité & sécurité...');
-    const deepseekAnalysis = await analyzeWithDeepSeek(extractedCode, language || 'python');
+    // ── 3. Analyse complète (qualité + documentation + métriques) ──
+    console.log('🤖 Analyse qualité, documentation & sécurité...');
+    const fullAnalysis = await performCodeAnalysis(extractedCode, language || 'python');
 
-    const codeForML = reconstructCleanCode(deepseekAnalysis.correctedCode || extractedCode);
+    const codeForML = reconstructCleanCode(fullAnalysis.correctedCode || extractedCode);
     console.log('🧹 Code reconstruit pour ML:\n', codeForML);
 
     const securityAnalysis = await analyzeSecurityML(codeForML, language || 'python');
@@ -396,19 +364,114 @@ exports.analyzeFromImage = async (req, res) => {
       ocrConfidence,
       ocrMethod,
       extractedCode,
-      correctedCode:  deepseekAnalysis.correctedCode || extractedCode,
+      correctedCode:  fullAnalysis.correctedCode || extractedCode,
       language:       language || 'python',
-      analysisSource: deepseekAnalysis.source,
+      analysisSource: 'performCodeAnalysis',
       analysis: {
-        score:        deepseekAnalysis.score,
-        improvements: deepseekAnalysis.improvements || [],
-        codeSmells:   deepseekAnalysis.codeSmells   || [],
-        summary:      deepseekAnalysis.summary       || '',
+        score:        fullAnalysis.qualityScore,
+        improvements: fullAnalysis.improvements || [],
+        codeSmells:   fullAnalysis.codeSmells   || [],
+        summary:      fullAnalysis.summary       || '',
         security:     securityAnalysis
       }
     };
 
-    console.log(`✅ Analyse terminée — Score: ${deepseekAnalysis.score} | Source: ${deepseekAnalysis.source} | Sécurité: ${securityAnalysis.type}`);
+    console.log('👤 req.user =', req.user);
+
+    // ── 5. Sauvegarde DB ─────────────────────────────────
+    if (req.user) {
+      try {
+        const pool = require('../config/db');
+
+        // ── Normalisation des vulnérabilités ──────────────
+        let vulnerabilitiesToSave = [];
+        if (Array.isArray(securityAnalysis.vulnerabilities) && securityAnalysis.vulnerabilities.length > 0) {
+          vulnerabilitiesToSave = securityAnalysis.vulnerabilities;
+        } else if (securityAnalysis.vulnerable) {
+          vulnerabilitiesToSave = [{
+            type:             securityAnalysis.type     || 'unknown',
+            severity:         securityAnalysis.severity || 'medium',
+            confidence:       securityAnalysis.confidence ?? 0,
+            vulnerable_lines: securityAnalysis.vulnerable_lines || [],
+          }];
+        }
+
+        // ── Documentation complète ─────────────────────────
+        const documentationToSave = {
+          coverage:    fullAnalysis.documentation?.coverage    ?? null,
+          functions:   fullAnalysis.documentation?.functions   ?? [],
+          missingDocs: fullAnalysis.documentation?.missingDocs ?? [],
+        };
+
+        // ── Métriques enrichies (réelles + métadonnées OCR) ──
+        const metricsToSave = {
+          ...fullAnalysis.metrics,           // lines, codeLines, functions, classes, etc.
+          analysisSource: 'image',
+          ocrConfidence:  ocrConfidence,
+          ocrMethod:      ocrMethod,
+          imageUrl:       imageUrl || null,
+          securityType:   securityAnalysis.type || 'safe',
+          securityScore:  securityAnalysis.vulnerable
+            ? Math.max(0, 100 - (vulnerabilitiesToSave.length * 20))
+            : 100,
+        };
+
+        console.log('🔐 Vulnérabilités à sauvegarder :', JSON.stringify(vulnerabilitiesToSave, null, 2));
+
+        // 1. Créer un projet
+        const projectResult = await pool.query(
+          `INSERT INTO projects (user_id, name, created_at)
+           VALUES ($1, $2, NOW())
+           RETURNING id`,
+          [
+            req.user.id,
+            req.file?.originalname || `Image Analysis ${new Date().toLocaleDateString('fr-FR')}`,
+          ]
+        );
+        const projectId = projectResult.rows[0].id;
+        console.log('✅ Projet créé, id =', projectId);
+
+        // 2. Insérer dans code_versions
+        const versionResult = await pool.query(
+          `INSERT INTO code_versions (project_id, code, programming_language, file_name, created_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           RETURNING id`,
+          [
+            projectId,
+            extractedCode,
+            language || 'python',
+            req.file?.originalname || null,
+          ]
+        );
+        const codeVersionId = versionResult.rows[0].id;
+        console.log('✅ code_versions inséré, id =', codeVersionId);
+
+        // 3. Insérer dans analysis_results — structure identique à analyzeCode
+        await pool.query(
+          `INSERT INTO analysis_results
+            (code_version_id, quality_score, improvements, code_smells, documentation, metrics, vulnerabilities, analyzed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+          [
+            codeVersionId,
+            fullAnalysis.qualityScore,
+            JSON.stringify(fullAnalysis.improvements || []),
+            JSON.stringify(fullAnalysis.codeSmells   || []),
+            JSON.stringify(documentationToSave),
+            JSON.stringify(metricsToSave),
+            JSON.stringify(vulnerabilitiesToSave),
+          ]
+        );
+
+        console.log('✅ Projet + code_version + analysis_results sauvegardés');
+      } catch (dbErr) {
+        console.error('❌ Erreur sauvegarde DB :', dbErr.message);
+        console.error('❌ Stack :', dbErr.stack);
+      }
+    } else {
+      console.warn('⚠️  req.user absent — analyse non sauvegardée');
+    }
+
+    console.log(`✅ Analyse terminée — Score: ${fullAnalysis.qualityScore} | Sécurité: ${securityAnalysis.type}`);
     return res.json(finalResult);
 
   } catch (error) {
@@ -422,3 +485,140 @@ exports.analyzeFromImage = async (req, res) => {
 };
 
 exports.uploadImage = upload.single('image');
+
+// ════════════════════════════════════════════════════
+// Fix code intelligent via DeepSeek
+// ════════════════════════════════════════════════════
+exports.fixCode = async (req, res) => {
+  try {
+    const { code, language } = req.body;
+
+    if (!code || !language) {
+      return res.status(400).json({
+        success: false,
+        message: 'Code et langage requis'
+      });
+    }
+
+    if (!process.env.DEEPSEEK_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        message: 'DEEPSEEK_API_KEY manquante'
+      });
+    }
+
+    const prompt = `
+Tu es un expert senior en qualité de code.
+
+MISSION :
+Analyse ET corrige le code ${language} suivant comme le ferait SonarQube + ESLint + sécurité OWASP.
+
+═══════════════════════════════════════
+CODE À ANALYSER :
+═══════════════════════════════════════
+\`\`\`${language}
+${code}
+\`\`\`
+
+═══════════════════════════════════════
+OBJECTIFS :
+═══════════════════════════════════════
+1. Détecter :
+   - erreurs
+   - code smells
+   - problèmes de performance
+   - vulnérabilités de sécurité
+   - mauvaises pratiques
+
+2. Corriger TOUT :
+   - appliquer les standards du langage
+   - améliorer lisibilité
+   - ajouter commentaires/docstrings
+   - corriger noms de variables
+   - supprimer code inutile
+   - ajouter gestion d'erreurs
+
+3. Produire un code PARFAIT :
+   - score 100/100 (SonarQube / ESLint)
+   - zéro warning, zéro vulnérabilité
+
+═══════════════════════════════════════
+FORMAT DE SORTIE OBLIGATOIRE (JSON) :
+═══════════════════════════════════════
+{
+  "correctedCode": "<code corrigé complet>",
+  "appliedFixes": [
+    {
+      "line": <ligne>,
+      "issue": "<problème détecté>",
+      "fix": "<correction appliquée>",
+      "type": "bug | smell | security | performance"
+    }
+  ],
+  "summary": "<résumé global des corrections>"
+}
+`;
+
+    console.log(`🤖 DeepSeek fixCode intelligent (${language})`);
+
+    const response = await axios.post(
+      process.env.ML_API_URL || 'http://localhost:5001',
+      {
+        model: 'deepseek-coder',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 4000,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+      }
+    );
+
+    const content = response.data.choices[0].message.content;
+    const cleaned = content
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .trim();
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Réponse DeepSeek invalide');
+
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      throw new Error('JSON mal formé');
+    }
+
+    if (!parsed.correctedCode) throw new Error('Pas de code corrigé retourné');
+
+    console.log(`✅ Fix intelligent — ${parsed.appliedFixes?.length || 0} corrections`);
+
+    res.json({
+      success: true,
+      correctedCode: parsed.correctedCode,
+      appliedFixes: parsed.appliedFixes || [],
+      summary: parsed.summary || 'Code corrigé intelligemment'
+    });
+
+  } catch (error) {
+    console.error('❌ fixCode:', error.message);
+
+    if (error.response?.status === 401) {
+      return res.status(500).json({ success: false, message: 'Clé API invalide' });
+    }
+    if (error.response?.status === 429) {
+      return res.status(429).json({ success: false, message: 'Limite atteinte, réessayez plus tard' });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du fix intelligent',
+      error: error.message
+    });
+  }
+};

@@ -918,3 +918,4 @@ ${code}
     res.status(500).json({ success: false, message: 'Erreur lors de la documentation', error: error.message });
   }
 };
+exports.performCodeAnalysis = performCodeAnalysis;

@@ -411,4 +411,80 @@ const exportUsersPdf = async (req, res) => {
       res.status(500).json({ success: false, message: 'Erreur lors de la génération du PDF' });
   }
 };
-module.exports = { getAllUsers, getUserById, createUser, updateUser, deleteUser ,exportUsersPdf };
+// GET /api/users/me — profil du user connecté
+const getMe = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: 'Non authentifié' });
+
+    const result = await pool.query(
+      'SELECT id, name, email, role, created_at, updated_at FROM users WHERE id = $1',
+      [userId]
+    );
+    if (result.rowCount === 0)
+      return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    console.error('Erreur getMe:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// PUT /api/users/me — update nom/email du user connecté
+const updateMe = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: 'Non authentifié' });
+
+    const { name, email } = req.body;
+    if (!name?.trim() || !email?.trim())
+      return res.status(400).json({ success: false, message: 'Nom et email obligatoires' });
+
+    const result = await pool.query(
+      `UPDATE users SET name = $1, email = $2, updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, name, email, role, updated_at`,
+      [name.trim(), email.trim(), userId]
+    );
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505')
+      return res.status(409).json({ success: false, message: 'Cet email est déjà utilisé' });
+    console.error('Erreur updateMe:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// PUT /api/users/me/password — changement mot de passe
+const updateMyPassword = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: 'Non authentifié' });
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ success: false, message: 'Champs obligatoires manquants' });
+    if (newPassword.length < 8)
+      return res.status(400).json({ success: false, message: 'Mot de passe trop court (8 caractères min)' });
+
+    const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+    if (result.rowCount === 0)
+      return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
+
+    const valid = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
+    if (!valid)
+      return res.status(401).json({ success: false, message: 'Mot de passe actuel incorrect' });
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [newHash, userId]);
+
+    res.json({ success: true, message: 'Mot de passe mis à jour' });
+  } catch (err) {
+    console.error('Erreur updateMyPassword:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// N'oublie pas d'exporter et d'ajouter les routes
+module.exports = { getAllUsers, getUserById, createUser, updateUser, deleteUser, exportUsersPdf, getMe, updateMe, updateMyPassword };

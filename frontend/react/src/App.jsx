@@ -13,6 +13,7 @@ import AdminRoute from './components/AdminRoute';
 import SecurityAnalysis from './pages/SecurityAnalysis';
 import OAuthCallback from './pages/googlegitauth/OAuthCallback';
 import ResetPassword from './pages/ResetPassword';
+import ProfilePage from './pages/User/ProfilePage';
 
 function App() {
   const { isAuthenticated, isAdmin, loading } = useAuth();
@@ -92,6 +93,7 @@ function App() {
         } 
       />
       <Route path="/security" element={<SecurityAnalysis />} />
+      <Route path="/profile" element={<ProfilePage />} />
 
       {/* Redirection par défaut */}
       <Route 

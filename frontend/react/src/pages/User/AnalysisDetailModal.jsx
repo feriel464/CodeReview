@@ -109,46 +109,99 @@ function SmellsTab({ items }) {
   );
 }
 
+// ─── Normalisation ───────────────────────────────────────────
+const TYPE_LABELS = {
+  sql_injection:     'Injection SQL',
+  command_injection: 'Injection de commande',
+  exposed_secret:    'Secret exposé',
+  xss:               'Cross-Site Scripting (XSS)',
+  path_traversal:    'Path Traversal',
+  ldap_injection:    'Injection LDAP',
+  xxe:               'XML External Entity (XXE)',
+  open_redirect:     'Redirection ouverte',
+  unknown:           'Vulnérabilité détectée',
+};
+
+function normalizeVuln(vuln) {
+  // Format ML  → { type, severity, confidence, vulnerable_lines }
+  // Format DeepSeek → { title, description, severity, cwe, fix, lines }
+  return {
+    title:       vuln.title       || TYPE_LABELS[vuln.type] || vuln.type || 'Vulnérabilité',
+    description: vuln.description || vuln.vulnerable_lines?.[0]?.explanation || '',
+    severity:    vuln.severity    || 'medium',
+    cwe:         vuln.cwe         || null,
+    fix:         vuln.fix         || null,
+    confidence:  vuln.confidence  ?? null,
+    lines: vuln.lines || (vuln.vulnerable_lines || []).map(l => ({
+      line:        l.line,
+      code:        l.code,
+      explanation: l.explanation,
+    })),
+  };
+}
+
 function VulnsTab({ items }) {
-  if (!items?.length) return <Empty label="Aucune vulnérabilité détectée" icon={<ShieldAlert className="w-8 h-8 text-emerald-400" />} />;
+  if (!items?.length) return (
+    <Empty
+      label="Aucune vulnérabilité détectée"
+      icon={<ShieldAlert className="w-8 h-8 text-emerald-400" />}
+    />
+  );
+
+  const normalized = items.map(normalizeVuln);
+
   return (
     <div>
-      {items.map((vuln, i) => (
+      {normalized.map((vuln, i) => (
         <div key={i} className="mb-3 rounded-xl border border-red-200 bg-red-50 overflow-hidden">
           <div className="flex items-start gap-3 px-3 py-3">
             <span className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-red-500" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-red-800">
-                {vuln.title}
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-medium text-red-800">{vuln.title}</p>
                 {vuln.cwe && (
-                  <span className="ml-2 text-[10px] font-mono bg-red-100 text-red-600 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono bg-red-100 text-red-600 px-1.5 py-0.5 rounded">
                     {vuln.cwe}
                   </span>
                 )}
-              </p>
-              <p className="text-xs text-red-600 mt-1 leading-snug">{vuln.description}</p>
+                {vuln.confidence !== null && (
+                  <span className="text-[10px] text-red-400 font-mono">
+                    conf. {(vuln.confidence * 100).toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              {vuln.description && (
+                <p className="text-xs text-red-600 mt-1 leading-snug">{vuln.description}</p>
+              )}
               {vuln.fix && (
                 <p className="text-xs text-gray-600 mt-1.5 leading-snug">
                   <span className="font-medium text-gray-700">Correction : </span>{vuln.fix}
                 </p>
               )}
             </div>
-            {vuln.severity && (
-              <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${
-                vuln.severity === 'critical' || vuln.severity === 'high'
-                  ? 'bg-red-200 text-red-700'
-                  : 'bg-amber-100 text-amber-700'
-              }`}>
-                {vuln.severity}
-              </span>
-            )}
+            <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${
+              vuln.severity === 'critical' || vuln.severity === 'high'
+                ? 'bg-red-200 text-red-700'
+                : 'bg-amber-100 text-amber-700'
+            }`}>
+              {vuln.severity}
+            </span>
           </div>
+
+          {/* Lignes de code vulnérables */}
           {vuln.lines?.length > 0 && (
-            <div className="border-t border-red-200 px-3 py-2 bg-red-100/50">
+            <div className="border-t border-red-200 px-3 py-2 bg-red-100/50 space-y-1.5">
               {vuln.lines.map((l, j) => (
-                <div key={j} className="flex gap-2 items-start text-xs text-red-700">
-                  <span className="font-mono font-medium flex-shrink-0">L.{l.line}</span>
-                  <code className="truncate">{l.code}</code>
+                <div key={j} className="text-xs text-red-700">
+                  <div className="flex gap-2 items-center">
+                    <span className="font-mono font-medium flex-shrink-0">L.{l.line}</span>
+                    <code className="truncate bg-red-200/50 px-1.5 py-0.5 rounded font-mono">
+                      {l.code}
+                    </code>
+                  </div>
+                  {l.explanation && (
+                    <p className="text-red-500 mt-0.5 ml-8 leading-snug">{l.explanation}</p>
+                  )}
                 </div>
               ))}
             </div>
