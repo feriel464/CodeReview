@@ -99,12 +99,9 @@ export default function Navbar({
         <nav className="hidden lg:flex items-center gap-6">
 
           {/* Liens publics */}
-          <a href="#features" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
-            Fonctionnalités
-            <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
-          </a>
-          <a href="#" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
-            Documentation
+
+          <a href="/" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
+            acceuil
             <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
           </a>
 

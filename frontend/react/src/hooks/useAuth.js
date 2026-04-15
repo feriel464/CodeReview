@@ -1,7 +1,7 @@
 // src/hooks/useAuth.js
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import authService from '../services/authService';
-//sert a gerer l'état d'ath coté client
+
 export const useAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -16,7 +16,7 @@ export const useAuth = () => {
         
         setIsAuthenticated(authenticated);
         setUser(currentUser);
-        setIsAdmin(currentUser && currentUser.role === 'admin');
+        setIsAdmin(currentUser?.role === 'admin');
       } catch (error) {
         console.error('Error checking auth:', error);
         setIsAuthenticated(false);
@@ -30,17 +30,19 @@ export const useAuth = () => {
     checkAuth();
   }, []);
 
+  // ✅ Fonction logout exposée
+  const logout = useCallback(() => {
+    authService.logout();           // vide le localStorage
+    setIsAuthenticated(false);      // met à jour l'état React
+    setUser(null);
+    setIsAdmin(false);
+  }, []);
+
   return {
     isAuthenticated,
     isAdmin,
     user,
-    loading
+    loading,
+    logout,                       
   };
 };
-//user → pour afficher nom, email et initiales
-
-//isAdmin → pour afficher le menu admin ou utilisateur normal
-
-//isAuthenticated → pour éventuellement afficher ou cacher le menu
-
-//loading → pour gérer le rendu conditionnel si nécessaire

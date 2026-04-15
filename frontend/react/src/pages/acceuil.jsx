@@ -9,7 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../src/hooks/useAuth';
 import axios from 'axios';
-
+import Navbar from '../components/Navbar';
 const API_URL          = import.meta.env.VITE_API_URL          || 'http://localhost:5000/api';
 const SECURITY_API_URL = import.meta.env.VITE_SECURITY_API_URL || 'http://localhost:5001';
 
@@ -118,33 +118,17 @@ async function analyzeVulnerabilities(code, language) {
 //  COMPOSANT PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 export default function CodeReview() {
-  const { user: authUser, logout } = useAuth();
-  const navigate                   = useNavigate();
-  const [localLoggedOut, setLocalLoggedOut] = useState(false);
-  const user      = localLoggedOut ? null : authUser;
-  const resultsRef  = useRef(null);
-  const userMenuRef = useRef(null);
-  const isLoggedIn  = !!user;
+  const { user, logout } = useAuth();   // ✅ une seule fois
+  const navigate = useNavigate();
+  const isLoggedIn = !!user;
+  const resultsRef = useRef(null);
 
-  useEffect(() => {
-    if (authUser) setLocalLoggedOut(false);
-  }, [authUser]);
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
-        setShowUserMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+
 
   // ── UI states ──────────────────────────────────────────────────────────────
   const [scrollY, setScrollY]                       = useState(0);
-  const [showMobileMenu, setShowMobileMenu]         = useState(false);
-  const [showUserMenu, setShowUserMenu]             = useState(false);
-  const [showLanguageMenu, setShowLanguageMenu]     = useState(false);
+
   const [floatingElements, setFloatingElements]     = useState([]);
   const [language, setLanguage]                     = useState('fr');
 
@@ -435,18 +419,14 @@ axios.post(
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogout = () => {
-    setShowUserMenu(false);
-    setShowMobileMenu(false);
-    setLocalLoggedOut(true);
-    localStorage.removeItem('token');
-    logout?.();
-    setShowResults(false);
-    setAnalysisResult(INITIAL_RESULT);
-    setVulnResult(null);
-    setCodeInput('');
-    checkGuestStatus();
-  };
+ const handleLogout = () => {
+  logout();                        
+  setShowResults(false);
+  setAnalysisResult(INITIAL_RESULT);
+  setVulnResult(null);
+  setCodeInput('');
+  checkGuestStatus();
+};
 
   // ── Image ──────────────────────────────────────────────────────────────────
   const handleImageUpload = (e) => {
@@ -643,146 +623,14 @@ axios.post(
       </div>
 
       {/* ── NAVBAR ─────────────────────────────────────────── */}
-      <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrollY > 50 ? 'bg-white/85 backdrop-blur-xl shadow-lg border-b border-gray-200/60' : 'bg-white/50 backdrop-blur-sm'
-      }`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3 animate-slide-in-left">
-            <div className="relative group">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                <Terminal className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-xl blur-lg opacity-40 group-hover:opacity-60 transition-opacity" />
-            </div>
-            <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">
-              CodeReview
-            </span>
-          </div>
-
-          <nav className="hidden lg:flex items-center gap-6">
-            <a href="#features" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
-              {t.features}
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
-            </a>
-            <a href="#" className="text-sm text-gray-700 hover:text-purple-600 transition-colors font-medium relative group">
-              {t.docs}
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600 group-hover:w-full transition-all duration-300" />
-            </a>
-
-            <div className="relative">
-              <button onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-                className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-gray-200">
-                <Globe className="w-4 h-4 text-gray-600" />
-                <span className="text-sm font-medium">{languages.find(l => l.code === language)?.flag}</span>
-                <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${showLanguageMenu ? 'rotate-180' : ''}`} />
-              </button>
-              {showLanguageMenu && (
-                <div className="absolute right-0 mt-2 w-44 bg-white rounded-xl shadow-xl border border-gray-200 py-2 animate-fade-in">
-                  {languages.map(lang => (
-                    <button key={lang.code} onClick={() => { setLanguage(lang.code); setShowLanguageMenu(false); }}
-                      className={`w-full px-4 py-2 text-left hover:bg-purple-50 transition-colors flex items-center gap-3 ${language === lang.code ? 'bg-purple-50 text-purple-600' : 'text-gray-700'}`}>
-                      <span className="text-lg">{lang.flag}</span>
-                      <span className="text-sm font-medium">{lang.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {isLoggedIn ? (
-              <div className="relative" ref={userMenuRef}>
-                <button onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-2.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all font-medium">
-                  <div className="w-6 h-6 bg-white/25 rounded-full flex items-center justify-center text-xs font-bold">
-                    {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
-                  </div>
-                  <span className="text-sm max-w-[120px] truncate">{user?.name || user?.email}</span>
-                  <ChevronDown className={`w-4 h-4 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
-                </button>
-                {showUserMenu && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 animate-fade-in overflow-hidden">
-                    <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50">
-                      <p className="text-sm font-bold text-gray-900 truncate">{user?.name || 'Utilisateur'}</p>
-                      <p className="text-xs text-gray-500 truncate">{user?.email}</p>
-                      <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                        Connecté · Analyses illimitées
-                      </span>
-                    </div>
-                    <button onClick={() => { navigate('/dashboard'); setShowUserMenu(false); }}
-                      className="w-full px-4 py-2.5 text-left hover:bg-purple-50 transition-colors flex items-center gap-3 text-gray-700 hover:text-purple-600">
-                      <LayoutDashboard className="w-4 h-4" />
-                      <span className="text-sm font-medium">Dashboard</span>
-                    </button>
-                    <button onClick={() => { navigate('/profile'); setShowUserMenu(false); }}
-                      className="w-full px-4 py-2.5 text-left hover:bg-purple-50 transition-colors flex items-center gap-3 text-gray-700 hover:text-purple-600">
-                      <Settings className="w-4 h-4" />
-                      <span className="text-sm font-medium">Paramètres</span>
-                    </button>
-                    <div className="border-t border-gray-100 mt-1 pt-1">
-                      <button onClick={handleLogout}
-                        className="w-full px-4 py-2.5 text-left hover:bg-red-50 transition-colors flex items-center gap-3 text-red-600">
-                        <LogOut className="w-4 h-4" />
-                        <span className="text-sm font-medium">Se déconnecter</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button onClick={() => navigate('/login')}
-                className="px-5 py-2 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all font-medium">
-                {t.start}
-              </button>
-            )}
-          </nav>
-
-          <button onClick={() => setShowMobileMenu(!showMobileMenu)} className="lg:hidden p-2 text-gray-700">
-            {showMobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
-        </div>
-
-        {showMobileMenu && (
-          <div className="lg:hidden bg-white border-t border-gray-200 animate-fade-in">
-            <div className="px-4 py-4 space-y-3">
-              <a href="#features" className="block text-sm text-gray-700 hover:text-purple-600 py-2">{t.features}</a>
-              <a href="#" className="block text-sm text-gray-700 hover:text-purple-600 py-2">{t.docs}</a>
-              <div className="pt-2 border-t border-gray-200">
-                {languages.map(lang => (
-                  <button key={lang.code} onClick={() => { setLanguage(lang.code); setShowMobileMenu(false); }}
-                    className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 ${language === lang.code ? 'bg-purple-50 text-purple-600' : 'text-gray-700'}`}>
-                    <span>{lang.flag}</span>
-                    <span className="text-sm">{lang.name}</span>
-                  </button>
-                ))}
-              </div>
-              {isLoggedIn ? (
-                <div className="pt-2 border-t border-gray-200 space-y-1">
-                  <div className="px-3 py-2 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
-                    <p className="text-sm font-bold text-gray-900">{user?.name || 'Utilisateur'}</p>
-                    <p className="text-xs text-gray-500">{user?.email}</p>
-                  </div>
-                  <button onClick={() => { navigate('/dashboard'); setShowMobileMenu(false); }}
-                    className="w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 text-gray-700 hover:bg-purple-50">
-                    <LayoutDashboard className="w-4 h-4" />
-                    <span className="text-sm">Dashboard</span>
-                  </button>
-                  <button onClick={handleLogout}
-                    className="w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 text-red-600 hover:bg-red-50">
-                    <LogOut className="w-4 h-4" />
-                    <span className="text-sm">Se déconnecter</span>
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => navigate('/login')}
-                  className="w-full px-5 py-2.5 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium">
-                  {t.start}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </header>
+<Navbar
+  user={user}
+  onLogout={handleLogout}
+  languages={languages}
+  language={language}
+  onLangChange={setLanguage}
+  scrollY={scrollY}
+/>
 
       {/* ── HERO + ZONE D'ANALYSE ──────────────────────────── */}
       <section className="pt-24 sm:pt-28 md:pt-32 pb-12 sm:pb-16 px-4 sm:px-6 relative">
