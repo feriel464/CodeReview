@@ -56,7 +56,24 @@ const FIX_MAP = {
   command_injection: "Évitez `shell=True` avec des entrées utilisateur. Utilisez `subprocess.run()` avec une liste d'arguments, ou validez strictement les entrées.",
   path_traversal:    "Validez et normalisez les chemins de fichiers. Utilisez `os.path.realpath()` et vérifiez que le chemin est dans le répertoire autorisé.",
 };
-
+// Mapping extension → langage de programmation
+const EXTENSION_TO_LANGUAGE = {
+  py:   'python',
+  js:   'javascript',
+  ts:   'typescript',
+  jsx:  'javascript',
+  tsx:  'typescript',
+  java: 'java',
+  c:    'cpp',
+  cpp:  'cpp',
+  cc:   'cpp',
+  h:    'cpp',
+  cs:   'csharp',
+  go:   'go',
+  rs:   'rust',
+  php:  'php',
+  rb:   'ruby',
+};
 // ─── Analyse vulnérabilités via FastAPI ───────────────────────────────────────
 async function analyzeVulnerabilities(code, language) {
   try {
@@ -669,6 +686,7 @@ axios.post(
                 { id: 'code',   icon: Keyboard,  label: t.pasteCode,   color: 'pink'   },
                 { id: 'upload', icon: FileUp,     label: t.uploadCode,  color: 'purple' },
                 { id: 'image',  icon: ImageIcon,  label: t.uploadImage, color: 'blue'   },
+                { id: 'source', icon: FileCode, label: 'Fichier source', color: 'teal' },
               ].map(method => (
                 <button key={method.id} onClick={() => setInputMethod(method.id)}
                   className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all transform hover:scale-105 ${
@@ -912,6 +930,144 @@ axios.post(
                     )}
                   </div>
                 )}
+                {/* Upload Fichier Source (.py, .js, .ts, .c ...) */}
+{inputMethod === 'source' && (
+  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-teal-300 p-8 sm:p-16 text-center hover:border-teal-500 hover:shadow-2xl transition-all">
+    <input
+      type="file"
+      accept=".py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.cc,.h,.cs,.go,.rs,.php,.rb"
+      className="hidden"
+      id="source-upload"
+      onChange={async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Validation taille (500 KB max)
+        if (file.size > 500 * 1024) {
+          alert('⚠️ Le fichier ne doit pas dépasser 500 KB');
+          return;
+        }
+
+        // Détection du langage depuis l'extension
+        const ext = file.name.split('.').pop().toLowerCase();
+        const detectedLang = EXTENSION_TO_LANGUAGE[ext];
+        if (!detectedLang) {
+          alert(`⚠️ Extension .${ext} non supportée.\nExtensions acceptées : .py, .js, .ts, .java, .c, .cpp, .cs, .go, .rs, .php, .rb`);
+          return;
+        }
+
+        // Lecture du fichier côté client (FileReader)
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const sourceCode = event.target.result;
+
+          if (!sourceCode.trim()) {
+            alert('⚠️ Le fichier est vide');
+            return;
+          }
+
+          // Remplir les champs et lancer l'analyse
+          setCodeInput(sourceCode);
+          setProgrammingLanguage(detectedLang);
+
+          // Lancer l'analyse directement (même logique que handleAnalyze)
+          try {
+            setIsAnalyzing(true);
+            setShowResults(false);
+            setVulnResult(null);
+
+            const token   = localStorage.getItem('token');
+            const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+            const [response, vulnData] = await Promise.all([
+              axios.post(
+                `${API_URL}/analyze`,
+                { code: sourceCode, language: detectedLang, fileName: file.name },
+                { headers }
+              ),
+              analyzeVulnerabilities(sourceCode, detectedLang),
+            ]);
+
+            if (response.data.success) {
+              const data = response.data.data;
+              setAnalysisResult({
+                qualityScore:  data.qualityScore ?? 0,
+                improvements:  Array.isArray(data.improvements) ? data.improvements : [],
+                codeSmells:    Array.isArray(data.codeSmells)   ? data.codeSmells   : [],
+                documentation: {
+                  coverage:    data.documentation?.coverage    ?? 0,
+                  missingDocs: Array.isArray(data.documentation?.missingDocs) ? data.documentation.missingDocs : [],
+                },
+                metrics: data.metrics || {},
+              });
+              setVulnResult(vulnData);
+
+              // Documentation en arrière-plan
+              setIsLoadingDoc(true);
+              setDocResult(null);
+              axios.post(
+                `${API_URL}/analyze/document`,
+                { code: sourceCode, language: detectedLang },
+                { headers }
+              ).then(r => {
+                if (r.data.success) setDocResult(r.data.functions);
+              }).catch(console.error)
+                .finally(() => setIsLoadingDoc(false));
+
+              if (!isLoggedIn && response.data.remainingAnalyses !== undefined) {
+                setGuestStatus(prev => ({
+                  ...prev,
+                  remaining:       response.data.remainingAnalyses,
+                  hasReachedLimit: response.data.remainingAnalyses === 0,
+                }));
+              }
+
+              setTimeout(() => {
+                setIsAnalyzing(false);
+                setShowResults(true);
+                setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+              }, 2000);
+            }
+          } catch (error) {
+            setIsAnalyzing(false);
+            if (error.response?.data?.languageMismatch) {
+              alert(`⚠️ ${error.response.data.message}`);
+            } else if (error.response?.data?.requiresAuth) {
+              alert(`🚫 ${error.response.data.message}`);
+              navigate('/login');
+            } else {
+              alert(`❌ ${error.response?.data?.message || error.message}`);
+            }
+          }
+        };
+        reader.onerror = () => alert('❌ Impossible de lire le fichier');
+        reader.readAsText(file, 'UTF-8');
+      }}
+    />
+    <label htmlFor="source-upload" className="cursor-pointer block">
+      <div className="mb-6 inline-block">
+        <div className="w-24 h-24 bg-gradient-to-br from-teal-100 to-green-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
+          <FileCode className="w-12 h-12 text-teal-600" />
+        </div>
+      </div>
+      <h3 className="text-2xl font-semibold text-gray-900 mb-3">Déposez votre fichier source ici</h3>
+      <p className="text-base text-gray-600 mb-4">
+        Fichiers Python, JavaScript, TypeScript, Java, C/C++, Go, Rust, PHP, Ruby...
+      </p>
+      <span className="px-8 py-3 text-base bg-gradient-to-r from-teal-600 to-green-600 text-white rounded-xl inline-block hover:shadow-xl transition-all font-medium hover:scale-105">
+        Sélectionner un fichier source
+      </span>
+      <div className="flex flex-wrap justify-center gap-2 mt-4">
+        {['.py','js','.ts','.java','.c','.cpp','.go','.rs'].map(ext => (
+          <span key={ext} className="px-2 py-1 bg-teal-50 text-teal-700 rounded text-xs font-mono border border-teal-200">
+            {ext}
+          </span>
+        ))}
+      </div>
+      <p className="text-xs text-gray-400 mt-3">Max 500 KB · Fichiers texte uniquement</p>
+    </label>
+  </div>
+)}
               </div>
             )}
 

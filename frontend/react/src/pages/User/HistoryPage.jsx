@@ -1,46 +1,45 @@
 // src/pages/User/HistoryPage.jsx
 import React, { useState, useEffect } from 'react';
 import {
-  Terminal, ArrowLeft, Code, Calendar, FileText, Loader,
+  Code, Calendar, FileText, Loader,
   Trash2, Trash, X, CheckCircle, AlertCircle, Clock,
-  ChevronRight, Search, SlidersHorizontal, BarChart2
+  ChevronRight, Search, SlidersHorizontal
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import UserMenu from '../../components/UserMenu';
+import Navbar from '../../components/Navbar';          // ← import Navbar
 import axios from 'axios';
 import AnalysisDetailModal from '../User/AnalysisDetailModal';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+// ─── Exemple de langues (à centraliser dans votre app si besoin) ─────────────
+const LANGUAGES = [
+  { code: 'fr', name: 'Français',  flag: '🇫🇷' },
+  { code: 'en', name: 'English',   flag: '🇬🇧' },
+  { code: 'ar', name: 'العربية',   flag: '🇹🇳' },
+];
 
 // ─── Couleur & label selon le score ─────────────────────────
 function scoreConfig(score) {
   if (score === null || score === undefined) return null;
   if (score >= 80) return {
     gradient: 'from-emerald-500 to-green-500',
-    bg: 'bg-emerald-50',
-    border: 'border-emerald-200',
-    text: 'text-emerald-600',
-    ring: 'ring-emerald-200',
-    label: 'Excellent',
-    icon: <CheckCircle className="w-3.5 h-3.5" />,
+    bg: 'bg-emerald-50', border: 'border-emerald-200',
+    text: 'text-emerald-600', ring: 'ring-emerald-200',
+    label: 'Excellent', icon: <CheckCircle className="w-3.5 h-3.5" />,
   };
   if (score >= 60) return {
     gradient: 'from-amber-400 to-orange-400',
-    bg: 'bg-amber-50',
-    border: 'border-amber-200',
-    text: 'text-amber-600',
-    ring: 'ring-amber-200',
-    label: 'Moyen',
-    icon: <AlertCircle className="w-3.5 h-3.5" />,
+    bg: 'bg-amber-50', border: 'border-amber-200',
+    text: 'text-amber-600', ring: 'ring-amber-200',
+    label: 'Moyen', icon: <AlertCircle className="w-3.5 h-3.5" />,
   };
   return {
     gradient: 'from-red-500 to-rose-500',
-    bg: 'bg-red-50',
-    border: 'border-red-200',
-    text: 'text-red-600',
-    ring: 'ring-red-200',
-    label: 'À améliorer',
-    icon: <AlertCircle className="w-3.5 h-3.5" />,
+    bg: 'bg-red-50', border: 'border-red-200',
+    text: 'text-red-600', ring: 'ring-red-200',
+    label: 'À améliorer', icon: <AlertCircle className="w-3.5 h-3.5" />,
   };
 }
 
@@ -62,7 +61,6 @@ function ScoreBadge({ score }) {
 
   return (
     <div className="relative flex flex-col items-center">
-      {/* Cercle SVG */}
       <div className={`relative w-20 h-20 rounded-2xl ${cfg.bg} border-2 ${cfg.border} flex items-center justify-center shadow-sm`}>
         <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 72 72">
           <circle cx="36" cy="36" r={r} fill="none" stroke="#e5e7eb" strokeWidth="5" />
@@ -74,7 +72,7 @@ function ScoreBadge({ score }) {
           />
           <defs>
             <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor={pct >= 80 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444'} />
+              <stop offset="0%"   stopColor={pct >= 80 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444'} />
               <stop offset="100%" stopColor={pct >= 80 ? '#22c55e' : pct >= 60 ? '#f97316' : '#f43f5e'} />
             </linearGradient>
           </defs>
@@ -84,7 +82,6 @@ function ScoreBadge({ score }) {
           <span className="block text-[10px] text-gray-400 font-medium leading-none">/100</span>
         </div>
       </div>
-      {/* Label */}
       <span className={`mt-1.5 text-xs font-semibold ${cfg.text} flex items-center gap-1`}>
         {cfg.icon}{cfg.label}
       </span>
@@ -102,7 +99,7 @@ function DeleteModal({ count, onConfirm, onCancel, loading }) {
           <Trash2 className="w-8 h-8 text-red-500" />
         </div>
         <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
-          {count === 'all' ? 'Vider tout l\'historique' : `Supprimer ${count} analyse${count > 1 ? 's' : ''}`}
+          {count === 'all' ? "Vider tout l'historique" : `Supprimer ${count} analyse${count > 1 ? 's' : ''}`}
         </h3>
         <p className="text-sm text-gray-500 text-center mb-6">
           {count === 'all'
@@ -130,26 +127,35 @@ function DeleteModal({ count, onConfirm, onCancel, loading }) {
 //  PAGE PRINCIPALE
 // ─────────────────────────────────────────────────────────────
 export default function HistoryPage() {
-  const { user } = useAuth();
-  const navigate  = useNavigate();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
-  const [history, setHistory]               = useState([]);
-  const [filtered, setFiltered]             = useState([]);
-  const [loading, setLoading]               = useState(true);
+  // Scroll pour le glassmorphism de la Navbar
+  const [scrollY, setScrollY] = useState(0);
+  useEffect(() => {
+    const onScroll = () => setScrollY(window.scrollY);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Langue (à connecter à votre contexte global si besoin)
+  const [language, setLanguage] = useState('fr');
+
+  const [history, setHistory]             = useState([]);
+  const [filtered, setFiltered]           = useState([]);
+  const [loading, setLoading]             = useState(true);
   const [floatingElements, setFloatingElements] = useState([]);
 
-  // Sélection & suppression
-  const [selected, setSelected]             = useState(new Set());
-  const [selectMode, setSelectMode]         = useState(false);
-  const [deleteModal, setDeleteModal]        = useState(null); // null | { count, ids }
-  const [deleteLoading, setDeleteLoading]   = useState(false);
-  const [toast, setToast]                   = useState(null);
-  const [detailItem, setDetailItem] = useState(null);
+  const [selected, setSelected]           = useState(new Set());
+  const [selectMode, setSelectMode]       = useState(false);
+  const [deleteModal, setDeleteModal]     = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [toast, setToast]                 = useState(null);
+  const [detailItem, setDetailItem]       = useState(null);
 
-  // Filtres
-  const [search, setSearch]                 = useState('');
-  const [filterScore, setFilterScore]       = useState('all'); // all | good | medium | bad
-  const [showFilters, setShowFilters]       = useState(false);
+  const [search, setSearch]               = useState('');
+  const [filterScore, setFilterScore]     = useState('all');
+  const [showFilters, setShowFilters]     = useState(false);
 
   // ── Init ────────────────────────────────────────────────
   useEffect(() => {
@@ -209,11 +215,8 @@ export default function HistoryPage() {
   };
 
   const toggleAll = () => {
-    if (selected.size === filtered.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filtered.map(i => i.project_id)));
-    }
+    if (selected.size === filtered.length) setSelected(new Set());
+    else setSelected(new Set(filtered.map(i => i.project_id)));
   };
 
   const exitSelectMode = () => {
@@ -230,11 +233,9 @@ export default function HistoryPage() {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
       if (deleteModal.ids === 'all') {
-        // Supprimer tout
         await axios.delete(`${API_URL}/analyze/history`, { headers });
         setHistory([]);
       } else {
-        // Supprimer les IDs sélectionnés
         await Promise.all(
           deleteModal.ids.map(id =>
             axios.delete(`${API_URL}/analyze/history/${id}`, { headers })
@@ -245,7 +246,12 @@ export default function HistoryPage() {
 
       setSelected(new Set());
       setSelectMode(false);
-      showToast(`${deleteModal.count === 'all' ? 'Historique vidé' : `${deleteModal.ids.length} analyse${deleteModal.ids.length > 1 ? 's' : ''} supprimée${deleteModal.ids.length > 1 ? 's' : ''}`} avec succès`, 'success');
+      showToast(
+        deleteModal.ids === 'all'
+          ? 'Historique vidé avec succès'
+          : `${deleteModal.ids.length} analyse${deleteModal.ids.length > 1 ? 's' : ''} supprimée${deleteModal.ids.length > 1 ? 's' : ''} avec succès`,
+        'success'
+      );
     } catch (err) {
       console.error('❌ Suppression:', err);
       showToast('Erreur lors de la suppression', 'error');
@@ -294,29 +300,19 @@ export default function HistoryPage() {
         ))}
       </div>
 
-      {/* ── Header ──────────────────────────────────────────── */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b-2 border-gray-200 shadow-sm">
-        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/dashboard')}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <ArrowLeft className="w-5 h-5 text-gray-700" />
-            </button>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg">
-                <Terminal className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-              </div>
-              <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">
-                Historique
-              </span>
-            </div>
-          </div>
-          <UserMenu />
-        </div>
-      </header>
+      {/* ── Navbar (remplace l'ancien header) ───────────────── */}
+      <Navbar
+        user={user}
+        onLogout={logout}
+        languages={LANGUAGES}
+        language={language}
+        onLangChange={setLanguage}
+        scrollY={scrollY}
+      />
 
       {/* ── Main ────────────────────────────────────────────── */}
-      <main className="p-4 sm:p-6 lg:p-8 relative z-10">
+      {/* pt-20 pour compenser la navbar fixed */}
+      <main className="pt-50 top-20 p-4 sm:p-6 lg:p-8 relative z-10">
         <div className="max-w-4xl mx-auto">
 
           {/* Titre + actions globales */}
@@ -330,7 +326,6 @@ export default function HistoryPage() {
               )}
             </div>
 
-            {/* Boutons action */}
             {!loading && history.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
                 {!selectMode ? (
@@ -401,9 +396,9 @@ export default function HistoryPage() {
                   <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 z-20 animate-fade-in">
                     <p className="px-4 py-1 text-xs text-gray-400 font-semibold uppercase tracking-wider">Score</p>
                     {[
-                      { value: 'all',    label: 'Tous les scores',  dot: 'bg-gray-400' },
-                      { value: 'good',   label: '≥ 80 — Excellent', dot: 'bg-emerald-500' },
-                      { value: 'medium', label: '60-79 — Moyen',    dot: 'bg-amber-400' },
+                      { value: 'all',    label: 'Tous les scores',    dot: 'bg-gray-400' },
+                      { value: 'good',   label: '≥ 80 — Excellent',   dot: 'bg-emerald-500' },
+                      { value: 'medium', label: '60-79 — Moyen',      dot: 'bg-amber-400' },
                       { value: 'bad',    label: '< 60 — À améliorer', dot: 'bg-red-500' },
                     ].map(opt => (
                       <button key={opt.value}
@@ -452,26 +447,24 @@ export default function HistoryPage() {
             </div>
 
           ) : (
-            /* ── Liste ────────────────────────────────────── */
             <div className="space-y-3">
               {filtered.map((item) => {
-                const cfg   = scoreConfig(item.quality_score);
+                const cfg = scoreConfig(item.quality_score);
                 const isSelected = selected.has(item.project_id);
 
                 return (
                   <div
                     key={item.project_id}
-                     onClick={() => {
-                        if (selectMode) { toggleSelect(item.project_id); return; }
-                        setDetailItem(item);  // ← ouvre le popup au lieu de naviguer directement
-                      }}
+                    onClick={() => {
+                      if (selectMode) { toggleSelect(item.project_id); return; }
+                      setDetailItem(item);
+                    }}
                     className={`group relative bg-white/90 backdrop-blur-sm rounded-2xl border-2 transition-all cursor-pointer
                       ${isSelected
                         ? 'border-purple-400 shadow-lg shadow-purple-100 scale-[1.01]'
                         : 'border-transparent hover:border-purple-200 hover:shadow-xl'
                       }`}
                   >
-                    {/* Checkbox (mode sélection) */}
                     {selectMode && (
                       <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
@@ -483,13 +476,10 @@ export default function HistoryPage() {
                     )}
 
                     <div className={`p-5 flex items-center gap-4 ${selectMode ? 'pl-12' : ''}`}>
-
-                      {/* Icône langage */}
                       <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow-md flex-shrink-0 group-hover:scale-110 transition-transform text-xl">
                         {langIcons[item.programming_language?.toLowerCase()] || <Code className="w-6 h-6 text-white" />}
                       </div>
 
-                      {/* Infos projet */}
                       <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-gray-900 text-base truncate mb-1">
                           {item.project_name}
@@ -511,38 +501,30 @@ export default function HistoryPage() {
                         </div>
                       </div>
 
-                      {/* Score badge */}
                       <div className="flex-shrink-0">
                         <ScoreBadge score={item.quality_score} />
                       </div>
 
-                      {/* Actions rapides */}
                       {!selectMode && (
                         <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              setDeleteModal({ count: 1, ids: [item.project_id] });
-                            }}
+                            onClick={e => { e.stopPropagation(); setDeleteModal({ count: 1, ids: [item.project_id] }); }}
                             className="p-2 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
                             title="Supprimer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              setDetailItem(item);  // ← ouvre le popup au lieu de naviguer
-                            }}
+                            onClick={e => { e.stopPropagation(); setDetailItem(item); }}
                             className="p-2 rounded-xl text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-all"
-                            title="Voir les détails">
+                            title="Voir les détails"
+                          >
                             <ChevronRight className="w-4 h-4" />
                           </button>
                         </div>
                       )}
                     </div>
 
-                    {/* Barre de score en bas de la carte */}
                     {item.quality_score !== null && item.quality_score !== undefined && (
                       <div className="h-1 w-full rounded-b-2xl overflow-hidden">
                         <div
@@ -557,7 +539,7 @@ export default function HistoryPage() {
             </div>
           )}
 
-          {/* Résumé de sélection */}
+          {/* Résumé de sélection flottant */}
           {selectMode && selected.size > 0 && (
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-slide-up">
               <div className="bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-4">
@@ -587,13 +569,16 @@ export default function HistoryPage() {
           loading={deleteLoading}
         />
       )}
-  {detailItem && (
-    <AnalysisDetailModal
-      item={detailItem}
-      onClose={() => setDetailItem(null)}
-      onViewFull={() => navigate(`/analyze/${detailItem.project_id}`)}
-    />
-  )}
+
+      {/* ── Modal détail ───────────────────────────────────── */}
+      {detailItem && (
+        <AnalysisDetailModal
+          item={detailItem}
+          onClose={() => setDetailItem(null)}
+          onViewFull={() => navigate(`/analyze/${detailItem.project_id}`)}
+        />
+      )}
+
       {/* ── Toast ─────────────────────────────────────────── */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-white text-sm font-medium animate-slide-up ${
@@ -613,8 +598,8 @@ export default function HistoryPage() {
           33%{transform:translateY(-30px)translateX(20px)rotate(120deg)}
           66%{transform:translateY(20px)translateX(-20px)rotate(240deg)}
         }
-        @keyframes fade-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes scale-in { from{opacity:0;transform:scale(.93)} to{opacity:1;transform:scale(1)} }
+        @keyframes fade-in  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes scale-in { from{opacity:0;transform:scale(.93)}       to{opacity:1;transform:scale(1)} }
         @keyframes slide-up { from{opacity:0;transform:translateY(20px) translateX(-50%)} to{opacity:1;transform:translateY(0) translateX(-50%)} }
         .animate-float-slow { animation: float-slow 20s ease-in-out infinite; }
         .animate-fade-in    { animation: fade-in .25s ease-out; }
