@@ -6,6 +6,7 @@ const { analyzeCode } = require('../utils/codeAnalyzer');
 const pool = require('../config/db');
 
 const ML_API_URL = process.env.ML_API_URL || 'http://localhost:5001';
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const pdf = require('pdf-parse');
 
 // ── Extraction du texte depuis le buffer PDF ──────────────────────────
@@ -139,6 +140,67 @@ function detectLanguage(code) {
   return 'javascript';
 }
 
+// ── Documentation via DeepSeek (identique à analyzeController) ───────
+async function generateDeepSeekDocumentation(code, language) {
+  const response = await axios.post(
+    DEEPSEEK_API_URL,
+    {
+      model: 'deepseek-coder',
+      messages: [{
+        role: 'user',
+        content: `Tu es un expert en documentation de code. Analyse ce code ${language} et génère une documentation structurée en JSON.
+
+Pour CHAQUE fonction/méthode/classe trouvée, retourne un objet avec ces champs :
+- "name": nom de la fonction
+- "type": "function" | "async function" | "class" | "method"
+- "line": numéro de ligne approximatif
+- "description": explication claire en 2-4 phrases — ce que fait la fonction, pourquoi elle existe, dans quel contexte l'utiliser. Parle comme à un développeur junior.
+- "params": tableau d'objets { name, type, description } — un par paramètre
+- "returns": string — ce que la fonction retourne, avec le type si possible
+- "example": string — un exemple d'appel concret (1-2 lignes max)
+
+Retourne UNIQUEMENT un JSON valide, sans markdown, sans backticks :
+{ "functions": [ {...} ], "coverage": <0-100> }
+
+Code :
+\`\`\`${language}
+${code}
+\`\`\``
+      }],
+      temperature: 0.2,
+      max_tokens: 3000,
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 45000,
+    }
+  );
+
+  const content = response.data.choices[0].message.content;
+  const cleaned = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Réponse DeepSeek invalide');
+
+  const parsed = JSON.parse(match[0]);
+  const functions = Array.isArray(parsed.functions) ? parsed.functions : [];
+
+  return {
+    coverage:    parseInt(parsed.coverage) || 0,
+    functions,
+    missingDocs: functions
+      .filter(f => !f.description || f.description.length < 10)
+      .map(f => ({
+        type:       f.type || 'function',
+        name:       f.name,
+        line:       f.line,
+        suggestion: 'Ajoutez une description complète'
+      })),
+  };
+}
+
 // ── Analyse de sécurité statique par regex ────────────────────────────
 function detectSecurityVulnsRegex(code, language) {
   const vulns = [];
@@ -197,7 +259,6 @@ function detectSecurityVulnsRegex(code, language) {
     if (matches) secretsFound.push(...matches);
   }
 
-  // Trouver les numéros de lignes pour chaque secret
   const secretLinePattern = /(?:SECRET_KEY|API_KEY|PRIVATE_KEY|PASSWORD|PASSWD|PWD|ADMIN_PASSWORD|TOKEN|AUTH_TOKEN|ACCESS_TOKEN)\s*=\s*["'][^"']{3,}["']/i;
   codeLines.forEach((line, idx) => {
     if (secretLinePattern.test(line)) {
@@ -337,7 +398,6 @@ function computeSecurityScore(vulns) {
 }
 
 // ── Base de connaissances pour enrichir les vulnérabilités ML ─────────
-// Utilisée quand le ML retourne des champs vides ou génériques.
 const VULN_KNOWLEDGE_BASE = {
   SQL_INJECTION: {
     cwe: 'CWE-89',
@@ -404,7 +464,6 @@ function enrichMlVuln(vuln, code) {
 
   const lines = code.split('\n');
 
-  // Retrouver le numéro de ligne si manquant
   let lineNumber = vuln.line;
   if (!lineNumber || lineNumber === '?' || lineNumber === 0) {
     for (const pattern of (kb.linePatterns || [])) {
@@ -413,13 +472,11 @@ function enrichMlVuln(vuln, code) {
     }
   }
 
-  // Retrouver le snippet si manquant
   let snippet = vuln.snippet;
   if ((!snippet || snippet.trim() === '') && lineNumber && lineNumber !== '?') {
     snippet = lines[lineNumber - 1]?.trim() || '';
   }
 
-  // Reconstruire vulnerableLines si vide mais qu'on a une ligne
   let vulnerableLines = vuln.vulnerableLines || [];
   if (vulnerableLines.length === 0 && lineNumber && lineNumber !== '?') {
     const lineCode = lines[lineNumber - 1]?.trim() || '';
@@ -427,7 +484,7 @@ function enrichMlVuln(vuln, code) {
       vulnerableLines = [{
         line: lineNumber,
         code: lineCode,
-        explanation: kb.description.split('.')[0] // première phrase comme explication
+        explanation: kb.description.split('.')[0]
       }];
     }
   }
@@ -449,17 +506,13 @@ function enrichMlVuln(vuln, code) {
 }
 
 // ── Normalisation des types ML vers les types canoniques ──────────────
-// Le service ML Python retourne des labels snake_case :
-//   sql_injection, xss, exposed_secret, command_injection, path_traversal, safe
 function normalizeVulnType(type) {
   if (!type) return 'UNKNOWN';
   const t = type.toUpperCase().replace(/[\s\-]/g, '_');
   const aliases = {
-    // SQL Injection
     'SQL_INJECTION':         'SQL_INJECTION',
     'SQLI':                  'SQL_INJECTION',
     'SQLINJECTION':          'SQL_INJECTION',
-    // Secrets — ML Python retourne "exposed_secret"
     'EXPOSED_SECRET':        'HARDCODED_SECRET',
     'HARDCODED_SECRET':      'HARDCODED_SECRET',
     'HARDCODED_SECRETS':     'HARDCODED_SECRET',
@@ -469,19 +522,15 @@ function normalizeVulnType(type) {
     'SECRETS':               'HARDCODED_SECRET',
     'CREDENTIAL':            'HARDCODED_SECRET',
     'CREDENTIALS':           'HARDCODED_SECRET',
-    // Command Injection
     'COMMAND_INJECTION':     'COMMAND_INJECTION',
     'CMD_INJECTION':         'COMMAND_INJECTION',
     'OS_COMMAND_INJECTION':  'COMMAND_INJECTION',
-    // Hash faible (pas dans le ML Python, gardé pour compatibilité)
     'WEAK_HASH_ALGORITHM':   'WEAK_HASH_ALGORITHM',
     'WEAK_HASH':             'WEAK_HASH_ALGORITHM',
     'WEAK_CRYPTO':           'WEAK_HASH_ALGORITHM',
     'INSECURE_HASH':         'WEAK_HASH_ALGORITHM',
-    // Path Traversal
     'PATH_TRAVERSAL':        'PATH_TRAVERSAL',
     'DIRECTORY_TRAVERSAL':   'PATH_TRAVERSAL',
-    // XSS — ML Python retourne "xss"
     'XSS':                   'XSS',
     'CROSS_SITE_SCRIPTING':  'XSS',
   };
@@ -489,9 +538,6 @@ function normalizeVulnType(type) {
 }
 
 // ── Fusion des résultats ML + regex ──────────────────────────────────
-// Le ML Python retourne :
-//   { vulnerabilities: [{ type, severity, confidence, vulnerable_lines: [{line, code, explanation}] }] }
-// On exploite vulnerable_lines directement pour avoir la ligne + snippet + explication.
 function mergeSecurityResults(mlResult, regexVulns, code = '') {
   if (!mlResult) {
     return {
@@ -504,7 +550,6 @@ function mergeSecurityResults(mlResult, regexVulns, code = '') {
   const mlVulns = (mlResult.vulnerabilities || []).map((v, i) => {
     const normalizedType = normalizeVulnType(v.type || v.vulnerability_type || 'UNKNOWN');
 
-    // ── Confidence ─────────────────────────────────────────────────
     let confidence = v.confidence;
     if (typeof confidence === 'number') {
       confidence = confidence <= 1
@@ -514,12 +559,9 @@ function mergeSecurityResults(mlResult, regexVulns, code = '') {
       confidence = confidence || '?';
     }
 
-    // ── Exploiter vulnerable_lines retournées par le ML Python ─────
-    // Structure : [{line: N, code: "...", explanation: "..."}]
     const vulnLines = Array.isArray(v.vulnerable_lines) ? v.vulnerable_lines : [];
     const firstVulnLine = vulnLines[0] || null;
 
-    // Construire vulnerableLines dans le format unifié
     const vulnerableLines = vulnLines.map(vl => ({
       line:        vl.line,
       code:        vl.code   || '',
@@ -532,11 +574,8 @@ function mergeSecurityResults(mlResult, regexVulns, code = '') {
       severity:       v.severity || 'medium',
       cwe:            v.cwe || '',
       title:          v.title || '',
-      // Description : prendre l'explanation de la 1ère ligne vulnérable si dispo
       description:    firstVulnLine?.explanation || v.description || v.explanation || '',
-      // Ligne : prendre du ML directement
       line:           firstVulnLine?.line || v.line || '?',
-      // Snippet : code exact de la ligne vulnérable retourné par le ML
       snippet:        firstVulnLine?.code || v.snippet || '',
       fix:            v.fix || v.recommendation || '',
       confidence,
@@ -544,20 +583,14 @@ function mergeSecurityResults(mlResult, regexVulns, code = '') {
       source:         'ml'
     };
 
-    // Enrichissement : compléter les champs encore vides avec la KB
     return enrichMlVuln(raw, code);
   });
 
-  // ── Déduplication : regex prioritaire sur ML ─────────────────────
   const regexTypes = new Set(regexVulns.map(r => r.type));
   const filteredMl = mlVulns.filter(ml => !regexTypes.has(ml.type));
 
-  const allVulns = [
-    ...regexVulns,   // déjà taggées source:'regex' dans detectSecurityVulnsRegex
-    ...filteredMl
-  ];
+  const allVulns = [...regexVulns, ...filteredMl];
 
-  // Renumérotation propre
   allVulns.forEach((v, i) => {
     v.id = `VULN-${String(i + 1).padStart(3, '0')}`;
   });
@@ -586,6 +619,40 @@ function uploadToCloudinary(buffer, originalName) {
     );
     uploadStream.end(buffer);
   });
+}
+
+// ── Sauvegarde DB (non bloquante, appelée après res.json) ─────────────
+async function saveToDatabase(pool, userId, fileName, code, language, quality, security, documentation) {
+  const projectResult = await pool.query(
+    `INSERT INTO projects (user_id, name, is_guest) VALUES ($1, $2, false) RETURNING id`,
+    [userId, fileName]
+  );
+  const projectId = projectResult.rows[0].id;
+
+  const versionResult = await pool.query(
+    `INSERT INTO code_versions (project_id, code, programming_language, file_name, version_number)
+     VALUES ($1, $2, $3, $4, 1) RETURNING id`,
+    [projectId, code, language, fileName]
+  );
+  const codeVersionId = versionResult.rows[0].id;
+
+  await pool.query(
+    `INSERT INTO analysis_results
+      (code_version_id, quality_score, improvements, code_smells, documentation, metrics, vulnerabilities)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      codeVersionId,
+      quality.qualityScore ?? 0,
+      JSON.stringify(quality.improvements  || []),
+      JSON.stringify(quality.codeSmells    || []),
+      JSON.stringify(documentation         || { coverage: 0, functions: [], missingDocs: [] }),
+      JSON.stringify(quality.metrics       || {}),
+      JSON.stringify(security.vulnerabilities || []),
+    ]
+  );
+
+  console.log('💾 Sauvegardé en DB, project ID:', projectId, '| version ID:', codeVersionId);
+  console.log('✅ analysis_results sauvegardé pour version ID:', codeVersionId);
 }
 
 // ── Handler principal ─────────────────────────────────────────────────
@@ -640,24 +707,35 @@ exports.analyzePDF = async (req, res) => {
     console.log('💻 Langage:', language);
     console.log('📊 Bloc principal:', code.length, 'chars,', code.split('\n').length, 'lignes');
 
-    // Analyses qualité + ML en parallèle
-    const [qualityResult, securityMLResult] = await Promise.allSettled([
+    // ✅ Analyses qualité + ML sécurité + documentation DeepSeek en parallèle
+    const [qualityResult, securityMLResult, docResult] = await Promise.allSettled([
       analyzeCode(code, language),
-      axios.post(`${ML_API_URL}/analyze`, { code, language }, { timeout: 30000 })
+      axios.post(`${ML_API_URL}/analyze`, { code, language }, { timeout: 10000 }),
+      generateDeepSeekDocumentation(code, language)   // ✅ DeepSeek comme analyzeController
     ]);
 
     const quality = qualityResult.status === 'fulfilled'
       ? qualityResult.value
-      : { qualityScore: 0, improvements: [], codeSmells: [] };
+      : { qualityScore: 0, improvements: [], codeSmells: [], metrics: {} };
 
     const mlSecurity = securityMLResult.status === 'fulfilled'
       ? securityMLResult.value.data
       : null;
 
+    // ✅ Documentation DeepSeek — fallback complet si échec
+    const documentation = docResult.status === 'fulfilled'
+      ? docResult.value
+      : { coverage: 0, functions: [], missingDocs: [] };
+
+    console.log('📚 Documentation DeepSeek:', docResult.status === 'fulfilled'
+      ? `OK — ${documentation.functions?.length || 0} fonction(s)`
+      : `échec — ${docResult.reason?.message || 'timeout'}`
+    );
+
     // Analyse statique regex (toujours exécutée)
     const regexVulns = detectSecurityVulnsRegex(code, language);
     console.log('🛡️  Vulnérabilités regex:', regexVulns.length);
-    console.log('🤖 Résultat ML:', mlSecurity ? 'OK' : 'échec/timeout');
+    console.log('🤖 Résultat ML sécurité:', mlSecurity ? 'OK' : 'échec/timeout');
 
     // Fusion ML + regex
     const security = mergeSecurityResults(mlSecurity, regexVulns, code);
@@ -669,26 +747,7 @@ exports.analyzePDF = async (req, res) => {
       return acc;
     }, {});
 
-    // Sauvegarde DB si utilisateur connecté
-    const userId = req.user?.id || null;
-    if (userId) {
-      try {
-        const projectResult = await pool.query(
-          `INSERT INTO projects (user_id, name, is_guest) VALUES ($1, $2, false) RETURNING id`,
-          [userId, req.file.originalname]
-        );
-        const projectId = projectResult.rows[0].id;
-        await pool.query(
-          `INSERT INTO code_versions (project_id, code, programming_language, file_name, version_number)
-           VALUES ($1, $2, $3, $4, 1)`,
-          [projectId, code, language, req.file.originalname]
-        );
-        console.log('💾 Sauvegardé en DB, project ID:', projectId);
-      } catch (dbErr) {
-        console.error('⚠️  Erreur DB (non bloquante):', dbErr.message);
-      }
-    }
-
+    // ✅ Envoyer la réponse AVANT la sauvegarde DB pour éviter le timeout
     res.json({
       success: true,
       message: `${codeBlocks.length} bloc(s) détecté(s) — analyse du plus grand`,
@@ -704,7 +763,7 @@ exports.analyzePDF = async (req, res) => {
         qualityScore:  quality.qualityScore  ?? 0,
         improvements:  quality.improvements  || [],
         codeSmells:    quality.codeSmells    || [],
-        documentation: quality.documentation || { coverage: 0, missingDocs: [] },
+        documentation,                              // ✅ DeepSeek documentation
         metrics:       quality.metrics       || {},
       },
       security: {
@@ -718,9 +777,6 @@ exports.analyzePDF = async (req, res) => {
           medium:   severityCount.medium   || 0,
           low:      severityCount.low      || 0,
         },
-        // Chaque vulnérabilité contient maintenant :
-        //   id, type, severity, cwe, title, description, line, snippet,
-        //   vulnerableLines: [{line, code, explanation}], fix, confidence, source
         vulnerabilities: security.vulnerabilities,
       },
       allBlocks: codeBlocks.map((b, i) => ({
@@ -731,6 +787,13 @@ exports.analyzePDF = async (req, res) => {
         preview:  b.code.substring(0, 80) + '...'
       }))
     });
+
+    // ✅ Sauvegarde DB en arrière-plan (non bloquante, après res.json)
+    const userId = req.user?.id || null;
+    if (userId) {
+      saveToDatabase(pool, userId, req.file.originalname, code, language, quality, security, documentation)
+        .catch(err => console.error('⚠️  Erreur DB (non bloquante):', err.message));
+    }
 
   } catch (err) {
     console.error('❌ PDF analyze error:', err);

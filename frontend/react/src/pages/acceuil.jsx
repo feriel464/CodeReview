@@ -768,44 +768,58 @@ axios.post(
                           const response = await axios.post(
                             `${API_URL}/pdf/analyze-pdf`,
                             formData,
-                            { headers, timeout: 60000 }
+                            { headers, timeout: 120000 }
                           );
 
+                          console.log('📦 Réponse PDF:', JSON.stringify(response.data, null, 2));
+
                           if (response.data.success) {
-                            const { data, security, extractedCode, language: detectedLang } = response.data;
+                            const {
+                              data,
+                              security,
+                              extractedCode,
+                              language: detectedLang
+                            } = response.data;
 
-                            setCodeInput(extractedCode);
-                            setProgrammingLanguage(detectedLang);
+                            setCodeInput(extractedCode || '');
+                            setProgrammingLanguage(detectedLang || programmingLanguage);
 
+                            // ✅ Fix 1 : mapping data avec fallbacks
                             setAnalysisResult({
-                              qualityScore:  data.qualityScore,
-                              improvements:  data.improvements,
-                              codeSmells:    data.codeSmells,
-                              documentation: data.documentation,
-                              metrics:       data.metrics,
+                              qualityScore:  data?.qualityScore  ?? 0,
+                              improvements:  data?.improvements  || [],
+                              codeSmells:    data?.codeSmells    || [],
+                              documentation: data?.documentation || { coverage: 0, missingDocs: [] },
+                              metrics:       data?.metrics       || {},
                             });
 
-                            if (security?.vulnerable) {
-                              setVulnResult({
-                                vulnerabilities: (security.vulnerabilities || []).map((v, i) => ({
-                                  id:          `VULN-${String(i + 1).padStart(3, '0')}`,
-                                  type:        TYPE_LABELS[v.type] || v.type,
-                                  severity:    SEVERITY_MAP[v.severity] || 'info',
-                                  title:       TYPE_LABELS[v.type] || v.type,
-                                  description: `${v.type} — ${v.confidence}% de confiance`,
-                                  fix:         FIX_MAP[v.type] || 'Corrigez la vulnérabilité.',
-                                  cwe:         CWE_MAP[v.type] || null,
-                                  confidence:  v.confidence,
-                                  lines:       v.vulnerable_lines || [],
-                                })),
-                                securityScore: Math.max(0, 100 - 60),
-                                summary:       security.message,
-                              });
-                            } else {
-                              setVulnResult({ vulnerabilities: [], securityScore: 100, summary: 'Aucune vulnérabilité détectée' });
-                            }
+                            // ✅ Fix 2 : mapping security — le backend retourne déjà
+                            // les champs enrichis (title, description, fix, cwe, vulnerableLines)
+                            const secVulns = security?.vulnerabilities || [];
 
-                            // ← AJOUTER CES LIGNES ICI :
+                            setVulnResult({
+                              vulnerabilities: secVulns.map((v, i) => ({
+                                id:          v.id || `VULN-${String(i + 1).padStart(3, '0')}`,
+                                type:        v.title || v.type || 'Vulnérabilité',
+                                severity:    v.severity || 'medium',
+                                title:       v.title || v.type || 'Vulnérabilité',
+                                description: v.description || '',
+                                fix:         v.fix || 'Corrigez la vulnérabilité.',
+                                cwe:         v.cwe || null,
+                                // ✅ Fix 3 : confidence peut être "99%" (string) → on parse
+                                confidence:  typeof v.confidence === 'string'
+                                              ? parseFloat(v.confidence)
+                                              : (v.confidence || 0),
+                                // ✅ Fix 4 : le backend retourne vulnerableLines, le frontend attend lines
+                                lines:       v.vulnerableLines || v.vulnerable_lines || [],
+                              })),
+                              securityScore: security?.score ?? 100,
+                              summary: secVulns.length > 0
+                                ? `${secVulns.length} vulnérabilité(s) détectée(s)`
+                                : 'Aucune vulnérabilité détectée',
+                            });
+
+                            // Documentation en arrière-plan
                             setIsLoadingDoc(true);
                             setDocResult(null);
                             axios.post(
@@ -825,6 +839,7 @@ axios.post(
                           }
                         } catch (error) {
                           setIsAnalyzing(false);
+                          console.error('❌ PDF error:', error.response?.data || error.message);
                           alert(`❌ ${error.response?.data?.message || 'Erreur analyse PDF'}`);
                         }
                       }}
