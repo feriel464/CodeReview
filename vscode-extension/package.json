@@ -1,0 +1,69 @@
+{
+  "name": "code-review-assistant",
+  "displayName": "Code Review Assistant",
+  "description": "Analyse de code avec IA (DeepSeek + analyse syntaxique) directement dans VS Code",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other", "Linters"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeReview.openPanel",
+        "title": "Code Review: Ouvrir le panel"
+      },
+      {
+        "command": "codeReview.analyzeSelection",
+        "title": "Code Review: Analyser la sélection"
+      },
+      {
+        "command": "codeReview.analyzeFile",
+        "title": "Code Review: Analyser le fichier entier"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codeReview.analyzeSelection",
+          "group": "codeReview",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "codeReview.analyzeFile",
+          "group": "codeReview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Code Review Assistant",
+      "properties": {
+        "codeReview.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:5000",
+          "description": "URL de votre backend Express"
+        },
+        "codeReview.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "JWT token pour les analyses illimitées (optionnel)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}

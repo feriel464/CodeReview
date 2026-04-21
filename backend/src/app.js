@@ -17,8 +17,37 @@ const app = express();
 
 // Middlewares
 app.use(cors({
-  origin: 'http://localhost:5173', // URL de votre frontend React
-  credentials: true
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:5173',           // Votre frontend React
+      /^vscode-webview:\/\/.*/,          // Extension VS Code
+    ];
+ 
+    // Autoriser les requêtes sans origin (curl, Postman, outils internes)
+    if (!origin) {
+      return callback(null, true);
+    }
+ 
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') {
+        return allowed === origin;
+      }
+      if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return false;
+    });
+ 
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.warn(`⚠️ CORS bloqué pour l'origine: ${origin}`);
+      callback(new Error(`Origin ${origin} non autorisée par CORS`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 
