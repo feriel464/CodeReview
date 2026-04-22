@@ -1146,10 +1146,7 @@ axios.post(
                           className="flex-1 flex items-center justify-center gap-2 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105">
                           <span>🔄</span> Réessayer avec du vrai code
                         </button>
-                        <button onClick={() => setCodeInput(`def hello_world():\n    """Exemple de code Python valide."""\n    message = "Hello, World!"\n    print(message)\n    return message\n\nhello_world()`)}
-                          className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-blue-300 text-blue-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-semibold hover:scale-105 flex items-center gap-2">
-                          <span>📋</span> Voir un exemple valide
-                        </button>
+
                       </div>
                     </div>
                   </div>

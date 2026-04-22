@@ -220,6 +220,69 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       });
       penalty += 25;
     }
+    if (/=\s*=\s*[^=]/.test(trimmed) && !/[=!<>]=/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: 'Assignation invalide : "= =" n\'est pas une syntaxe Python valide',
+        severity: 'error',
+        suggestion: 'Utilisez un seul "=" pour assigner une valeur',
+      });
+      penalty += 25;
+    }
+
+    // def sans nom de fonction : def (foo bar)
+    if (/^def\s*\(/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: '"def" sans nom de fonction',
+        severity: 'error',
+        suggestion: 'Syntaxe correcte : def nom_fonction(param):',
+      });
+      penalty += 30;
+    }
+
+    // Mots-clés français (si, retourne, afficher, pour, fin, alors)
+    const frenchKeywords = ['si ', 'retourne ', 'afficher ', 'pour ', 'fin ', 'alors ', 'importer '];
+    for (const kw of frenchKeywords) {
+      if (trimmed.toLowerCase().startsWith(kw) || trimmed.toLowerCase() === kw.trim()) {
+        criticalErrors.push({
+          line: i + 1,
+          message: `"${kw.trim()}" n'est pas un mot-clé Python valide (mot français)`,
+          severity: 'error',
+          suggestion: `Python utilise l'anglais : "if", "return", "print", "for"...`,
+        });
+        penalty += 20;
+        break;
+      }
+    }
+
+    // Opérateurs consécutifs invalides (+ + +, - - -)
+    if (/[+\-*]{3,}/.test(trimmed)) {
+      criticalErrors.push({
+        line: i + 1,
+        message: 'Opérateurs consécutifs invalides',
+        severity: 'error',
+        suggestion: 'Un seul opérateur à la fois : +, -, *',
+      });
+      penalty += 20;
+    }
+
+    // Texte brut sans syntaxe (ligne sans =, :, (, def, class, import, #)
+    if (
+      trimmed.length > 3 &&
+      !/[=:()\[\]{}#@]/.test(trimmed) &&
+      !/^(def|class|import|from|if|else|elif|for|while|return|try|except|with|pass|break|continue|raise|yield|print|and|or|not|in|is|True|False|None)\b/.test(trimmed) &&
+      /^[a-zA-ZÀ-ÿ\s]+$/.test(trimmed)
+    ) {
+      criticalErrors.push({
+        line: i + 1,
+        message: `Texte brut détecté : "${trimmed}" — ce n'est pas du code Python`,
+        severity: 'error',
+        suggestion: 'Ce contenu ne ressemble pas à du code Python valide',
+      });
+      penalty += 25;
+    }
+  
   });
 
   return Math.min(penalty, 100);
@@ -299,7 +362,7 @@ async function analyzeCode(code, language) {
       ];
 
       // Score = 30% du score syntaxique (ex: syntaxScore=0 → score=0 ; syntaxScore=40 → score=12)
-      const brokenScore = Math.round(Math.min(30, syntaxCheck.syntaxScore * 0.30));
+      const brokenScore = 0;
 
       return {
         success:         true,
@@ -481,7 +544,7 @@ Analyse ce code et retourne uniquement le JSON demandé.`;
           'Authorization': `Bearer ${DEEPSEEK_CONFIG.apiKey}`,
           'Content-Type':  'application/json',
         },
-        timeout: 60000,
+        timeout: 120000,
       }
     );
     responseText = response.data?.choices?.[0]?.message?.content || '';

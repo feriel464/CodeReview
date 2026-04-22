@@ -377,7 +377,7 @@ Retourne UNIQUEMENT un objet JSON valide, sans markdown, sans backticks, sans te
           'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
           'Content-Type':  'application/json',
         },
-        timeout: 60000,
+        timeout: 120000,
       }
     );
 
