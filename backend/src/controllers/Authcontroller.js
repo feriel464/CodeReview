@@ -342,11 +342,82 @@ const resetPassword = async (req, res) => {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 };
+const vsCodeRegister = async (req, res) => {
+  try {
+    const { extensionId } = req.body;
+ 
+    // Validation basique
+    if (!extensionId || typeof extensionId !== 'string' || extensionId.length < 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'extensionId invalide ou manquant',
+      });
+    }
+ 
+    // Email fictif unique par installation — ne peut pas se connecter depuis le web
+    const fakeEmail = `vscode_${extensionId}@vscode.local`;
+    const fakeName  = `VSCode-${extensionId.substring(8, 20)}`;
+ 
+    // Vérifie si ce compte VS Code existe déjà (re-lancement ou réinstallation)
+    const existing = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [fakeEmail]
+    );
+ 
+    let userId;
+ 
+    if (existing.rows.length > 0) {
+      // Installation déjà connue → on récupère juste l'userId
+      userId = existing.rows[0].id;
+      console.log(`🖥️  VS Code reconnect — userId: ${userId}`);
+    } else {
+      // Toute première installation → on crée le compte automatiquement
+      const newUser = await pool.query(
+        `INSERT INTO users (name, email, password_hash, role, created_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         RETURNING id`,
+        [
+          fakeName,
+          fakeEmail,
+          'NO_PASSWORD_VSCODE_ACCOUNT', // pas de vrai mot de passe
+          'vscode_user',                // rôle distinct des vrais utilisateurs
+        ]
+      );
+      userId = newUser.rows[0].id;
+      console.log(`🖥️  VS Code register — nouveau compte créé, userId: ${userId}`);
+    }
+ 
+    // JWT valide 30 jours — même format que les JWT normaux de ton système
+    // Le middleware optionalAuth va décoder ce token et mettre req.user.id
+    // → isGuest = false → aucune limite d'analyses
+    const token = jwt.sign(
+      { userId, role: 'vscode_user' },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+ 
+    return res.status(200).json({
+      success: true,
+      token,
+      message: 'Extension VS Code enregistrée avec succès',
+    });
+ 
+  } catch (error) {
+    console.error('❌ vsCodeRegister:', error);
+    res.status(500).json({
+      success:  false,
+      message:  'Erreur lors de l\'enregistrement de l\'extension',
+      error:    error.message,
+    });
+  }
+};
+
 module.exports = {
   signup,
   login,
   logout,
   verifyToken, 
   forgotPassword,   
-  resetPassword
+  resetPassword , 
+   vsCodeRegister
 };

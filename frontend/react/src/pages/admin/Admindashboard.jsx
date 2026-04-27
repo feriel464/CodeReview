@@ -232,39 +232,7 @@ const handleViewCode = async (analysis) => {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
-              {/* Notifications */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="p-2 sm:p-3 bg-gray-100 hover:bg-purple-100 rounded-lg sm:rounded-xl transition-all relative"
-                >
-                  <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" />
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                </button>
-                {showNotifications && (
-                  <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-2xl border-2 border-gray-200 py-3 animate-fade-in">
-                    <div className="px-4 pb-3 border-b border-gray-200">
-                      <h3 className="font-bold text-gray-900 text-sm sm:text-base">Notifications</h3>
-                    </div>
-                    <div className="max-h-96 overflow-y-auto">
-                      {[1, 2, 3].map((i) => (
-                        <div key={i} className="px-4 py-3 hover:bg-purple-50 transition-colors cursor-pointer border-b border-gray-100">
-                          <div className="flex items-start gap-3">
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0">
-                              <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-xs sm:text-sm font-semibold text-gray-900">Analyse terminée</p>
-                              <p className="text-xs text-gray-600">Le fichier app.py a été analysé avec succès</p>
-                              <p className="text-xs text-gray-400 mt-1">Il y a 5 minutes</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+            
 
               {/* User Menu */}
               <div className="relative">

@@ -167,6 +167,7 @@ exports.analyzeCode = async (req, res) => {
         codeSmells:    resultInsert.rows[0].code_smells,
         documentation: resultInsert.rows[0].documentation,
         metrics:       resultInsert.rows[0].metrics,
+        vulnerabilities: resultInsert.rows[0].vulnerabilities || [],
         analyzedAt:    resultInsert.rows[0].analyzed_at
       },
       isGuest,

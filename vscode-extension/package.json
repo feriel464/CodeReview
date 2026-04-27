@@ -22,6 +22,10 @@
       {
         "command": "codeReview.analyzeFile",
         "title": "Code Review: Analyser le fichier entier"
+      },
+      {
+        "command": "codeReview.resetSession",
+        "title": "Code Review: Réinitialiser la session"
       }
     ],
     "menus": {
@@ -48,7 +52,7 @@
         "codeReview.authToken": {
           "type": "string",
           "default": "",
-          "description": "JWT token pour les analyses illimitées (optionnel)"
+          "description": "JWT token personnel (optionnel — laissez vide pour utiliser le JWT automatique)"
         }
       }
     }
@@ -62,8 +66,5 @@
     "@types/vscode": "^1.85.0",
     "@types/node": "^18.0.0",
     "typescript": "^5.3.0"
-  },
-  "dependencies": {
-    "axios": "^1.6.0"
   }
 }

@@ -2,7 +2,14 @@
 /**
  * apiClient.ts
  * Couche d'accès HTTP vers le backend Express existant.
- * Réutilise exactement les routes définies dans analysisRoutes.js.
+ *
+ * ACCÈS ILLIMITÉ VS CODE — Système JWT automatique :
+ *   1. Au premier lancement, l'extension s'enregistre sur le backend
+ *      via POST /api/auth/vscode-register
+ *   2. Le backend crée un compte automatique et retourne un JWT
+ *   3. Ce JWT est stocké dans vscode.globalState (persiste entre sessions)
+ *   4. Toutes les requêtes suivantes envoient ce JWT en Authorization header
+ *   5. Le backend traite l'extension comme un utilisateur connecté → illimité
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -38,14 +45,80 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.setExtensionContext = setExtensionContext;
+exports.ensureVSCodeJwt = ensureVSCodeJwt;
 exports.analyzeCode = analyzeCode;
 exports.applyCorrections = applyCorrections;
 exports.documentCode = documentCode;
 exports.getGuestStatus = getGuestStatus;
 exports.getProgrammingLanguages = getProgrammingLanguages;
+exports.hasValidJwt = hasValidJwt;
+exports.resetAndReregister = resetAndReregister;
 const vscode = __importStar(require("vscode"));
 const https = __importStar(require("https"));
 const http = __importStar(require("http"));
+// ─── Clé de stockage du JWT dans globalState ─────────────────
+const JWT_STORAGE_KEY = 'codeReview.vscodeJwt';
+// ─── Référence au contexte VS Code (injecté depuis extension.ts) ─
+let _context = null;
+/**
+ * À appeler UNE SEULE FOIS dans extension.ts au démarrage.
+ * Donne accès au globalState pour stocker/lire le JWT.
+ */
+function setExtensionContext(ctx) {
+    _context = ctx;
+}
+// ─────────────────────────────────────────────────────────────
+//  GESTION DU JWT
+// ─────────────────────────────────────────────────────────────
+/** Lit le JWT stocké localement. Retourne null si absent. */
+function getStoredJwt() {
+    return _context?.globalState.get(JWT_STORAGE_KEY) || null;
+}
+/** Sauvegarde le JWT dans le stockage persistant de VS Code. */
+async function storeJwt(token) {
+    await _context?.globalState.update(JWT_STORAGE_KEY, token);
+}
+/**
+ * Enregistre l'extension sur le backend si pas encore fait.
+ * Génère un UUID unique par installation et l'envoie au backend.
+ * Le backend crée un compte automatique et retourne un JWT.
+ * Appelé automatiquement au démarrage de l'extension.
+ */
+async function ensureVSCodeJwt() {
+    const existing = getStoredJwt();
+    if (existing) {
+        console.log('✅ JWT VS Code déjà présent, pas de re-registration nécessaire');
+        return;
+    }
+    const { backendUrl } = getConfig();
+    const extensionId = generateInstallationId();
+    console.log('🔑 Première utilisation — enregistrement de l\'extension VS Code...');
+    try {
+        const result = await httpRequest(`${backendUrl}/api/auth/vscode-register`, 'POST', { extensionId }, {});
+        if (result.success && result.token) {
+            await storeJwt(result.token);
+            console.log('✅ JWT VS Code obtenu et stocké avec succès');
+        }
+        else {
+            console.error('❌ Échec enregistrement VS Code:', result.message);
+        }
+    }
+    catch (err) {
+        console.warn('⚠️ Enregistrement VS Code échoué (backend indisponible?):', err.message);
+    }
+}
+/**
+ * Génère un identifiant unique et stable pour cette installation VS Code.
+ * vscode.env.machineId est unique par machine — parfait pour nous.
+ */
+function generateInstallationId() {
+    const machineId = vscode.env.machineId || 'unknown';
+    return `vscode-${machineId}`.substring(0, 80);
+}
+// ─────────────────────────────────────────────────────────────
+//  CONFIGURATION
+// ─────────────────────────────────────────────────────────────
 function getConfig() {
     const cfg = vscode.workspace.getConfiguration('codeReview');
     return {
@@ -53,9 +126,30 @@ function getConfig() {
         authToken: cfg.get('authToken') || '',
     };
 }
+// ─────────────────────────────────────────────────────────────
+//  CONSTRUCTION DES HEADERS
+// ─────────────────────────────────────────────────────────────
 /**
- * Effectue une requête HTTP/HTTPS sans dépendance externe (axios non disponible dans WebView).
+ * Priorité : 1) token manuel configuré par l'utilisateur
+ *            2) JWT automatique de l'extension
  */
+function buildHeaders() {
+    const { authToken } = getConfig();
+    const h = {};
+    if (authToken) {
+        h['Authorization'] = `Bearer ${authToken}`;
+    }
+    else {
+        const jwt = getStoredJwt();
+        if (jwt) {
+            h['Authorization'] = `Bearer ${jwt}`;
+        }
+    }
+    return h;
+}
+// ─────────────────────────────────────────────────────────────
+//  HTTP CLIENT NATIF
+// ─────────────────────────────────────────────────────────────
 function httpRequest(url, method, body, headers) {
     return new Promise((resolve, reject) => {
         const parsed = new URL(url);
@@ -82,7 +176,7 @@ function httpRequest(url, method, body, headers) {
                     resolve(JSON.parse(data));
                 }
                 catch {
-                    reject(new Error(`Réponse non-JSON du serveur: ${data.substring(0, 200)}`));
+                    reject(new Error(`Réponse non-JSON: ${data.substring(0, 200)}`));
                 }
             });
         });
@@ -94,88 +188,60 @@ function httpRequest(url, method, body, headers) {
         req.end();
     });
 }
-function buildHeaders(authToken) {
-    const h = {};
-    if (authToken) {
-        h['Authorization'] = `Bearer ${authToken}`;
-    }
-    return h;
-}
-/**
- * POST /api/analyze
- * Envoie le code au backend et retourne les résultats d'analyse.
- */
+// ─────────────────────────────────────────────────────────────
+//  FONCTIONS API
+// ─────────────────────────────────────────────────────────────
+/** POST /api/analyze — JWT envoyé automatiquement → illimité */
 async function analyzeCode(request) {
-    const { backendUrl, authToken } = getConfig();
-    const url = `${backendUrl}/api/analyze`;
+    const { backendUrl } = getConfig();
     try {
-        const result = await httpRequest(url, 'POST', request, buildHeaders(authToken));
-        return result;
+        return await httpRequest(`${backendUrl}/api/analyze`, 'POST', request, buildHeaders());
     }
     catch (error) {
-        const msg = error.message || 'Erreur réseau inconnue';
-        if (msg.includes('ECONNREFUSED')) {
+        if (error.message?.includes('ECONNREFUSED')) {
             throw new Error(`Impossible de contacter le backend à ${backendUrl}. Vérifiez que votre serveur Express est démarré.`);
         }
-        throw new Error(`Erreur API: ${msg}`);
+        throw new Error(`Erreur API: ${error.message}`);
     }
 }
-/**
- * POST /api/analyze/apply-corrections
- * Applique les corrections suggérées via DeepSeek.
- */
+/** POST /api/analyze/apply-corrections */
 async function applyCorrections(request) {
-    const { backendUrl, authToken } = getConfig();
-    const url = `${backendUrl}/api/analyze/apply-corrections`;
+    const { backendUrl } = getConfig();
     try {
-        const result = await httpRequest(url, 'POST', request, buildHeaders(authToken));
-        return result;
+        return await httpRequest(`${backendUrl}/api/analyze/apply-corrections`, 'POST', request, buildHeaders());
     }
     catch (error) {
-        throw new Error(`Erreur lors de l'application des corrections: ${error.message}`);
+        throw new Error(`Erreur corrections: ${error.message}`);
     }
 }
-/**
- * POST /api/analyze/document
- * Génère la documentation via DeepSeek.
- */
+/** POST /api/analyze/document */
 async function documentCode(code, language) {
-    const { backendUrl, authToken } = getConfig();
-    const url = `${backendUrl}/api/analyze/document`;
+    const { backendUrl } = getConfig();
     try {
-        return await httpRequest(url, 'POST', { code, language }, buildHeaders(authToken));
+        return await httpRequest(`${backendUrl}/api/analyze/document`, 'POST', { code, language }, buildHeaders());
     }
     catch (error) {
         throw new Error(`Erreur documentation: ${error.message}`);
     }
 }
-/**
- * GET /api/analyze/guest-status
- * Vérifie le nombre d'analyses restantes pour un invité.
- */
+/** GET /api/analyze/guest-status — avec JWT retourne illimité */
 async function getGuestStatus() {
-    const { backendUrl, authToken } = getConfig();
-    const url = `${backendUrl}/api/analyze/guest-status`;
+    const { backendUrl } = getConfig();
     try {
-        const result = await httpRequest(url, 'GET', null, buildHeaders(authToken));
-        return result;
+        return await httpRequest(`${backendUrl}/api/analyze/guest-status`, 'GET', null, buildHeaders());
     }
     catch {
-        return { remaining: 3, limit: 3, currentCount: 0 };
+        return { remaining: null, limit: null, currentCount: 0 };
     }
 }
-/**
- * GET /api/analyze/programming-languages
- */
+/** GET /api/analyze/programming-languages */
 async function getProgrammingLanguages() {
     const { backendUrl } = getConfig();
-    const url = `${backendUrl}/api/analyze/programming-languages`;
     try {
-        const result = await httpRequest(url, 'GET', null, {});
+        const result = await httpRequest(`${backendUrl}/api/analyze/programming-languages`, 'GET', null, {});
         return result.languages || [];
     }
     catch {
-        // Retourne une liste de secours si le backend n'est pas disponible
         return [
             { code: 'javascript', name: 'JavaScript' },
             { code: 'typescript', name: 'TypeScript' },
@@ -189,4 +255,13 @@ async function getProgrammingLanguages() {
             { code: 'ruby', name: 'Ruby' },
         ];
     }
+}
+/** Indique si un JWT est disponible (pour debug) */
+function hasValidJwt() {
+    return !!getStoredJwt();
+}
+/** Force un re-enregistrement si le JWT a expiré */
+async function resetAndReregister() {
+    await _context?.globalState.update(JWT_STORAGE_KEY, undefined);
+    await ensureVSCodeJwt();
 }
