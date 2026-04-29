@@ -1,6 +1,6 @@
 // src/pages/User/UserDashboard.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, TrendingUp, Upload, Sparkles, History, BookOpen } from 'lucide-react';
+import { FileText, TrendingUp, Upload, Sparkles, History, BookOpen, User } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
@@ -148,16 +148,16 @@ export default function UserDashboard() {
               <p className="text-gray-600">Consultez l'historique de vos analyses</p>
             </div>
 
-            {/* Documentation */}
+            {/* Userprofile */}
             <div
-              onClick={() => navigate('/#features')}
+              onClick={() => navigate('/profile')}
               className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20 hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105 group"
             >
               <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
-                <BookOpen className="w-7 h-7 text-white" />
+                <User className="w-7 h-7 text-white" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Documentation</h3>
-              <p className="text-gray-600">Apprenez à utiliser CodeReview</p>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Mon Profil</h3>
+              <p className="text-gray-600">Consulter detail de mon compte </p>
             </div>
 
           </div>
