@@ -146,7 +146,7 @@ export class ReviewPanel {
           return;
         }
 
-        this._sendToWebView({ type: 'loading', message: 'Application des corrections via DeepSeek...' });
+        this._sendToWebView({ type: 'loading', message: 'Application des corrections via CodeReview...' });
 
         try {
           const result = await api.applyCorrections({
@@ -271,7 +271,7 @@ export class ReviewPanel {
     <span class="logo">⬡</span>
     <div>
       <div class="header-title">Code Review Assistant</div>
-      <div class="header-sub">Analyse IA · DeepSeek · Sécurité</div>
+      <div class="header-sub">Analyse IA · Sécurité</div>
     </div>
   </div>
   <div class="guest-badge" id="guestBadge">
