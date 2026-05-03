@@ -10,6 +10,7 @@ const userRoutes = require('./routes/admindash/Userroutes');
 const dashboardRoutes = require('./routes/admindash/dashboardRoutes');
 const codeReviewsRoutes = require('./routes/admindash/codeReviewsRoutes');
 const passport = require('./config/passport');
+const chatRoutes = require('./routes/chatRoutes');
 
 require('dotenv').config();
 
@@ -63,7 +64,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/code-reviews', codeReviewsRoutes);
 app.use(passport.initialize());
-
+app.use('/api/chat', chatRoutes);
 // Route de test
 app.get('/api', async (req, res) => {
   try {

@@ -4,12 +4,13 @@ import {
   ArrowRight, Sparkles, Terminal, FileCode, Bug, BookOpen, Clock, Users,
   Image as ImageIcon, FileUp, Keyboard, Globe, ChevronDown, X, Menu,
   LogOut, User, LayoutDashboard, Settings, ShieldAlert, Lock, AlertTriangle,
-  Copy, Check, WandSparkles
+  Copy, Check, WandSparkles, MessageCircle, Send, Paperclip
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../src/hooks/useAuth';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
+
 const API_URL          = import.meta.env.VITE_API_URL          || 'http://localhost:5000/api';
 const SECURITY_API_URL = import.meta.env.VITE_SECURITY_API_URL || 'http://localhost:5001';
 
@@ -56,6 +57,7 @@ const FIX_MAP = {
   command_injection: "Évitez `shell=True` avec des entrées utilisateur. Utilisez `subprocess.run()` avec une liste d'arguments, ou validez strictement les entrées.",
   path_traversal:    "Validez et normalisez les chemins de fichiers. Utilisez `os.path.realpath()` et vérifiez que le chemin est dans le répertoire autorisé.",
 };
+
 // Mapping extension → langage de programmation
 const EXTENSION_TO_LANGUAGE = {
   py:   'python',
@@ -74,6 +76,7 @@ const EXTENSION_TO_LANGUAGE = {
   php:  'php',
   rb:   'ruby',
 };
+
 // ─── Analyse vulnérabilités via FastAPI ───────────────────────────────────────
 async function analyzeVulnerabilities(code, language) {
   try {
@@ -135,17 +138,13 @@ async function analyzeVulnerabilities(code, language) {
 //  COMPOSANT PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 export default function CodeReview() {
-  const { user, logout } = useAuth();   // ✅ une seule fois
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const isLoggedIn = !!user;
   const resultsRef = useRef(null);
 
-
-
-
   // ── UI states ──────────────────────────────────────────────────────────────
   const [scrollY, setScrollY]                       = useState(0);
-
   const [floatingElements, setFloatingElements]     = useState([]);
   const [language, setLanguage]                     = useState('fr');
 
@@ -180,6 +179,18 @@ export default function CodeReview() {
   const [codeCopied, setCodeCopied]                     = useState(false);
   const [docResult, setDocResult]       = useState(null);
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
+
+  // ── Chat states ────────────────────────────────────────────────────────────
+  const [chatOpen, setChatOpen]           = useState(false);
+  const [chatMessages, setChatMessages]   = useState([]);
+  const [chatInput, setChatInput]         = useState('');
+  const [chatSessionId, setChatSessionId] = useState(null);
+  const [chatLoading, setChatLoading]     = useState(false);
+  const [chatIndexing, setChatIndexing]   = useState(false);
+  const [chatFunctions, setChatFunctions] = useState([]);
+  const [chatClasses, setChatClasses]     = useState([]);
+  const chatEndRef                        = useRef(null);
+
   // ── Init ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     loadAll();
@@ -258,6 +269,84 @@ export default function CodeReview() {
     } catch { }
   }
 
+  // ── Chat handlers ──────────────────────────────────────────────────────────
+  const handleChatFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setChatIndexing(true);
+    setChatMessages([]);
+    setChatSessionId(null);
+    setChatFunctions([]);
+    setChatClasses([]);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const token    = localStorage.getItem('token');
+      const headers  = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const response = await axios.post(
+        `${API_URL}/chat/index`,
+        formData,
+        { headers: { ...headers, 'Content-Type': 'multipart/form-data' } }
+      );
+
+      if (response.data.success) {
+        setChatSessionId(response.data.session_id);
+        setChatFunctions(response.data.functions || []);
+        setChatClasses(response.data.classes || []);
+        setChatMessages([{
+          role: 'assistant',
+          content: `✅ **${file.name}** indexé avec succès !\n\n📦 **${response.data.chunks_count} chunks** analysés\n🔧 **Fonctions :** ${(response.data.functions || []).slice(0, 5).join(', ')}${response.data.functions?.length > 5 ? '...' : ''}\n\nPosez vos questions sur le code !`
+        }]);
+      }
+    } catch (error) {
+      setChatMessages([{
+        role: 'assistant',
+        content: '❌ Erreur lors de l\'indexation. Vérifiez que le fichier est un .py ou .zip valide.'
+      }]);
+    } finally {
+      setChatIndexing(false);
+    }
+  };
+
+  const handleChatSend = async () => {
+    if (!chatInput.trim() || !chatSessionId || chatLoading) return;
+
+    const question = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: question }]);
+    setChatLoading(true);
+
+    try {
+      const token   = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const response = await axios.post(
+        `${API_URL}/chat/ask`,
+        { session_id: chatSessionId, question },
+        { headers, timeout: 120000 }
+      );
+
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: response.data.answer,
+        chunks: response.data.chunks_used,
+        source: response.data.source
+      }]);
+    } catch (error) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '❌ Erreur lors de la génération de la réponse. Réessayez.'
+      }]);
+    } finally {
+      setChatLoading(false);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  };
+
   // ── Analyse principale ─────────────────────────────────────────────────────
   const handleAnalyze = async () => {
     if (!isLoggedIn && (inputMethod === 'upload' || inputMethod === 'image')) {
@@ -300,17 +389,19 @@ export default function CodeReview() {
           metrics: data.metrics || {},
         });
         setVulnResult(vulnData);
-// Lance la doc en arrière-plan (non bloquant)
-setIsLoadingDoc(true);
-setDocResult(null);
-axios.post(
-  `${API_URL}/analyze/document`,
-  { code: codeInput, language: programmingLanguage },
-  { headers }
-).then(r => {
-  if (r.data.success) setDocResult(r.data.functions);
-}).catch(console.error)
-  .finally(() => setIsLoadingDoc(false));
+
+        // Lance la doc en arrière-plan (non bloquant)
+        setIsLoadingDoc(true);
+        setDocResult(null);
+        axios.post(
+          `${API_URL}/analyze/document`,
+          { code: codeInput, language: programmingLanguage },
+          { headers }
+        ).then(r => {
+          if (r.data.success) setDocResult(r.data.functions);
+        }).catch(console.error)
+          .finally(() => setIsLoadingDoc(false));
+
         if (!isLoggedIn && response.data.remainingAnalyses !== undefined) {
           setGuestStatus(prev => ({
             ...prev,
@@ -391,7 +482,7 @@ axios.post(
       setShowCorrectionModal(false);
 
       if (error.response?.status === 429) {
-        alert('⏳ Limite  atteinte, réessayez dans un moment.');
+        alert('⏳ Limite atteinte, réessayez dans un moment.');
       } else {
         alert(`❌ ${error.response?.data?.message || "Erreur lors de l'application des corrections"}`);
       }
@@ -432,18 +523,18 @@ axios.post(
     setImageAnalysisData(null);
     setCorrectionResult(null);
     setDocResult(null);
-    setIsLoadingDoc(false); 
+    setIsLoadingDoc(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
- const handleLogout = () => {
-  logout();                        
-  setShowResults(false);
-  setAnalysisResult(INITIAL_RESULT);
-  setVulnResult(null);
-  setCodeInput('');
-  checkGuestStatus();
-};
+  const handleLogout = () => {
+    logout();
+    setShowResults(false);
+    setAnalysisResult(INITIAL_RESULT);
+    setVulnResult(null);
+    setCodeInput('');
+    checkGuestStatus();
+  };
 
   // ── Image ──────────────────────────────────────────────────────────────────
   const handleImageUpload = (e) => {
@@ -497,7 +588,8 @@ axios.post(
           metrics:       {},
           summary:       data.analysis.summary
         });
-// Lance la doc en arrière-plan avec le code extrait par OCR
+
+        // Lance la doc en arrière-plan avec le code extrait par OCR
         setIsLoadingDoc(true);
         setDocResult(null);
         axios.post(
@@ -508,6 +600,7 @@ axios.post(
           if (r.data.success) setDocResult(r.data.functions);
         }).catch(console.error)
           .finally(() => setIsLoadingDoc(false));
+
         const secData         = data.analysis.security;
         const allImprovements = data.analysis.improvements || [];
 
@@ -563,9 +656,6 @@ axios.post(
             ? `${finalVulns.length} vulnérabilité(s) détectée(s) : ${finalVulns.map(v => v.title).join(', ')}`
             : 'Aucune vulnérabilité détectée',
         });
-          
-
-
 
         setTimeout(() => {
           setIsAnalyzing(false);
@@ -588,11 +678,11 @@ axios.post(
 
   const getSeverityConfig = (severity) => {
     switch (severity) {
-      case 'critical': return { color: 'bg-red-100 text-red-800 border-red-300',       dot: 'bg-red-500',    badge: 'from-red-500 to-rose-600',        emoji: '🔴', label: 'Critique' };
-      case 'high':     return { color: 'bg-orange-100 text-orange-800 border-orange-300', dot: 'bg-orange-500', badge: 'from-orange-500 to-red-500',      emoji: '🟠', label: 'Élevé' };
-      case 'medium':   return { color: 'bg-yellow-100 text-yellow-800 border-yellow-300', dot: 'bg-yellow-500', badge: 'from-yellow-500 to-orange-400',   emoji: '🟡', label: 'Moyen' };
-      case 'low':      return { color: 'bg-blue-100 text-blue-800 border-blue-300',    dot: 'bg-blue-400',   badge: 'from-blue-400 to-cyan-500',          emoji: '🔵', label: 'Faible' };
-      default:         return { color: 'bg-gray-100 text-gray-700 border-gray-300',    dot: 'bg-gray-400',   badge: 'from-gray-400 to-gray-500',          emoji: '⚪', label: 'Info' };
+      case 'critical': return { color: 'bg-red-100 text-red-800 border-red-300',         dot: 'bg-red-500',    badge: 'from-red-500 to-rose-600',      emoji: '🔴', label: 'Critique' };
+      case 'high':     return { color: 'bg-orange-100 text-orange-800 border-orange-300', dot: 'bg-orange-500', badge: 'from-orange-500 to-red-500',    emoji: '🟠', label: 'Élevé' };
+      case 'medium':   return { color: 'bg-yellow-100 text-yellow-800 border-yellow-300', dot: 'bg-yellow-500', badge: 'from-yellow-500 to-orange-400', emoji: '🟡', label: 'Moyen' };
+      case 'low':      return { color: 'bg-blue-100 text-blue-800 border-blue-300',       dot: 'bg-blue-400',   badge: 'from-blue-400 to-cyan-500',     emoji: '🔵', label: 'Faible' };
+      default:         return { color: 'bg-gray-100 text-gray-700 border-gray-300',       dot: 'bg-gray-400',   badge: 'from-gray-400 to-gray-500',     emoji: '⚪', label: 'Info' };
     }
   };
 
@@ -640,14 +730,14 @@ axios.post(
       </div>
 
       {/* ── NAVBAR ─────────────────────────────────────────── */}
-<Navbar
-  user={user}
-  onLogout={handleLogout}
-  languages={languages}
-  language={language}
-  onLangChange={setLanguage}
-  scrollY={scrollY}
-/>
+      <Navbar
+        user={user}
+        onLogout={handleLogout}
+        languages={languages}
+        language={language}
+        onLangChange={setLanguage}
+        scrollY={scrollY}
+      />
 
       {/* ── HERO + ZONE D'ANALYSE ──────────────────────────── */}
       <section className="pt-24 sm:pt-28 md:pt-32 pb-12 sm:pb-16 px-4 sm:px-6 relative">
@@ -802,7 +892,6 @@ axios.post(
                             setCodeInput(extractedCode || '');
                             setProgrammingLanguage(detectedLang || programmingLanguage);
 
-                            // ✅ Fix 1 : mapping data avec fallbacks
                             setAnalysisResult({
                               qualityScore:  data?.qualityScore  ?? 0,
                               improvements:  data?.improvements  || [],
@@ -811,8 +900,6 @@ axios.post(
                               metrics:       data?.metrics       || {},
                             });
 
-                            // ✅ Fix 2 : mapping security — le backend retourne déjà
-                            // les champs enrichis (title, description, fix, cwe, vulnerableLines)
                             const secVulns = security?.vulnerabilities || [];
 
                             setVulnResult({
@@ -824,11 +911,9 @@ axios.post(
                                 description: v.description || '',
                                 fix:         v.fix || 'Corrigez la vulnérabilité.',
                                 cwe:         v.cwe || null,
-                                // ✅ Fix 3 : confidence peut être "99%" (string) → on parse
                                 confidence:  typeof v.confidence === 'string'
                                               ? parseFloat(v.confidence)
                                               : (v.confidence || 0),
-                                // ✅ Fix 4 : le backend retourne vulnerableLines, le frontend attend lines
                                 lines:       v.vulnerableLines || v.vulnerable_lines || [],
                               })),
                               securityScore: security?.score ?? 100,
@@ -930,144 +1015,139 @@ axios.post(
                     )}
                   </div>
                 )}
+
                 {/* Upload Fichier Source (.py, .js, .ts, .c ...) */}
-{inputMethod === 'source' && (
-  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-teal-300 p-8 sm:p-16 text-center hover:border-teal-500 hover:shadow-2xl transition-all">
-    <input
-      type="file"
-      accept=".py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.cc,.h,.cs,.go,.rs,.php,.rb"
-      className="hidden"
-      id="source-upload"
-      onChange={async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+                {inputMethod === 'source' && (
+                  <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-dashed border-teal-300 p-8 sm:p-16 text-center hover:border-teal-500 hover:shadow-2xl transition-all">
+                    <input
+                      type="file"
+                      accept=".py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.cc,.h,.cs,.go,.rs,.php,.rb"
+                      className="hidden"
+                      id="source-upload"
+                      onChange={async (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
 
-        // Validation taille (500 KB max)
-        if (file.size > 500 * 1024) {
-          alert('⚠️ Le fichier ne doit pas dépasser 500 KB');
-          return;
-        }
+                        if (file.size > 500 * 1024) {
+                          alert('⚠️ Le fichier ne doit pas dépasser 500 KB');
+                          return;
+                        }
 
-        // Détection du langage depuis l'extension
-        const ext = file.name.split('.').pop().toLowerCase();
-        const detectedLang = EXTENSION_TO_LANGUAGE[ext];
-        if (!detectedLang) {
-          alert(`⚠️ Extension .${ext} non supportée.\nExtensions acceptées : .py, .js, .ts, .java, .c, .cpp, .cs, .go, .rs, .php, .rb`);
-          return;
-        }
+                        const ext = file.name.split('.').pop().toLowerCase();
+                        const detectedLang = EXTENSION_TO_LANGUAGE[ext];
+                        if (!detectedLang) {
+                          alert(`⚠️ Extension .${ext} non supportée.\nExtensions acceptées : .py, .js, .ts, .java, .c, .cpp, .cs, .go, .rs, .php, .rb`);
+                          return;
+                        }
 
-        // Lecture du fichier côté client (FileReader)
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const sourceCode = event.target.result;
+                        const reader = new FileReader();
+                        reader.onload = async (event) => {
+                          const sourceCode = event.target.result;
 
-          if (!sourceCode.trim()) {
-            alert('⚠️ Le fichier est vide');
-            return;
-          }
+                          if (!sourceCode.trim()) {
+                            alert('⚠️ Le fichier est vide');
+                            return;
+                          }
 
-          // Remplir les champs et lancer l'analyse
-          setCodeInput(sourceCode);
-          setProgrammingLanguage(detectedLang);
+                          setCodeInput(sourceCode);
+                          setProgrammingLanguage(detectedLang);
 
-          // Lancer l'analyse directement (même logique que handleAnalyze)
-          try {
-            setIsAnalyzing(true);
-            setShowResults(false);
-            setVulnResult(null);
+                          try {
+                            setIsAnalyzing(true);
+                            setShowResults(false);
+                            setVulnResult(null);
 
-            const token   = localStorage.getItem('token');
-            const headers = token ? { Authorization: `Bearer ${token}` } : {};
+                            const token   = localStorage.getItem('token');
+                            const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-            const [response, vulnData] = await Promise.all([
-              axios.post(
-                `${API_URL}/analyze`,
-                { code: sourceCode, language: detectedLang, fileName: file.name },
-                { headers }
-              ),
-              analyzeVulnerabilities(sourceCode, detectedLang),
-            ]);
+                            const [response, vulnData] = await Promise.all([
+                              axios.post(
+                                `${API_URL}/analyze`,
+                                { code: sourceCode, language: detectedLang, fileName: file.name },
+                                { headers }
+                              ),
+                              analyzeVulnerabilities(sourceCode, detectedLang),
+                            ]);
 
-            if (response.data.success) {
-              const data = response.data.data;
-              setAnalysisResult({
-                qualityScore:  data.qualityScore ?? 0,
-                improvements:  Array.isArray(data.improvements) ? data.improvements : [],
-                codeSmells:    Array.isArray(data.codeSmells)   ? data.codeSmells   : [],
-                documentation: {
-                  coverage:    data.documentation?.coverage    ?? 0,
-                  missingDocs: Array.isArray(data.documentation?.missingDocs) ? data.documentation.missingDocs : [],
-                },
-                metrics: data.metrics || {},
-              });
-              setVulnResult(vulnData);
+                            if (response.data.success) {
+                              const data = response.data.data;
+                              setAnalysisResult({
+                                qualityScore:  data.qualityScore ?? 0,
+                                improvements:  Array.isArray(data.improvements) ? data.improvements : [],
+                                codeSmells:    Array.isArray(data.codeSmells)   ? data.codeSmells   : [],
+                                documentation: {
+                                  coverage:    data.documentation?.coverage    ?? 0,
+                                  missingDocs: Array.isArray(data.documentation?.missingDocs) ? data.documentation.missingDocs : [],
+                                },
+                                metrics: data.metrics || {},
+                              });
+                              setVulnResult(vulnData);
 
-              // Documentation en arrière-plan
-              setIsLoadingDoc(true);
-              setDocResult(null);
-              axios.post(
-                `${API_URL}/analyze/document`,
-                { code: sourceCode, language: detectedLang },
-                { headers }
-              ).then(r => {
-                if (r.data.success) setDocResult(r.data.functions);
-              }).catch(console.error)
-                .finally(() => setIsLoadingDoc(false));
+                              setIsLoadingDoc(true);
+                              setDocResult(null);
+                              axios.post(
+                                `${API_URL}/analyze/document`,
+                                { code: sourceCode, language: detectedLang },
+                                { headers }
+                              ).then(r => {
+                                if (r.data.success) setDocResult(r.data.functions);
+                              }).catch(console.error)
+                                .finally(() => setIsLoadingDoc(false));
 
-              if (!isLoggedIn && response.data.remainingAnalyses !== undefined) {
-                setGuestStatus(prev => ({
-                  ...prev,
-                  remaining:       response.data.remainingAnalyses,
-                  hasReachedLimit: response.data.remainingAnalyses === 0,
-                }));
-              }
+                              if (!isLoggedIn && response.data.remainingAnalyses !== undefined) {
+                                setGuestStatus(prev => ({
+                                  ...prev,
+                                  remaining:       response.data.remainingAnalyses,
+                                  hasReachedLimit: response.data.remainingAnalyses === 0,
+                                }));
+                              }
 
-              setTimeout(() => {
-                setIsAnalyzing(false);
-                setShowResults(true);
-                setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-              }, 2000);
-            }
-          } catch (error) {
-            setIsAnalyzing(false);
-            if (error.response?.data?.languageMismatch) {
-              alert(`⚠️ ${error.response.data.message}`);
-            } else if (error.response?.data?.requiresAuth) {
-              alert(`🚫 ${error.response.data.message}`);
-              navigate('/login');
-            } else {
-              alert(`❌ ${error.response?.data?.message || error.message}`);
-            }
-          }
-        };
-        reader.onerror = () => alert('❌ Impossible de lire le fichier');
-        reader.readAsText(file, 'UTF-8');
-      }}
-    />
-    <label htmlFor="source-upload" className="cursor-pointer block">
-      <div className="mb-6 inline-block">
-        <div className="w-24 h-24 bg-gradient-to-br from-teal-100 to-green-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
-          <FileCode className="w-12 h-12 text-teal-600" />
-        </div>
-      </div>
-      <h3 className="text-2xl font-semibold text-gray-900 mb-3">Déposez votre fichier source ici</h3>
-      <p className="text-base text-gray-600 mb-4">
-        Fichiers Python, JavaScript, TypeScript, Java, C/C++, Go, Rust, PHP, Ruby...
-      </p>
-      <span className="px-8 py-3 text-base bg-gradient-to-r from-teal-600 to-green-600 text-white rounded-xl inline-block hover:shadow-xl transition-all font-medium hover:scale-105">
-        Sélectionner un fichier source
-      </span>
-      <div className="flex flex-wrap justify-center gap-2 mt-4">
-        {['.py','js','.ts','.java','.c','.cpp','.go','.rs'].map(ext => (
-          <span key={ext} className="px-2 py-1 bg-teal-50 text-teal-700 rounded text-xs font-mono border border-teal-200">
-            {ext}
-          </span>
-        ))}
-      </div>
-      <p className="text-xs text-gray-400 mt-3">Max 500 KB · Fichiers texte uniquement</p>
-    </label>
-  </div>
-)}
+                              setTimeout(() => {
+                                setIsAnalyzing(false);
+                                setShowResults(true);
+                                setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+                              }, 2000);
+                            }
+                          } catch (error) {
+                            setIsAnalyzing(false);
+                            if (error.response?.data?.languageMismatch) {
+                              alert(`⚠️ ${error.response.data.message}`);
+                            } else if (error.response?.data?.requiresAuth) {
+                              alert(`🚫 ${error.response.data.message}`);
+                              navigate('/login');
+                            } else {
+                              alert(`❌ ${error.response?.data?.message || error.message}`);
+                            }
+                          }
+                        };
+                        reader.onerror = () => alert('❌ Impossible de lire le fichier');
+                        reader.readAsText(file, 'UTF-8');
+                      }}
+                    />
+                    <label htmlFor="source-upload" className="cursor-pointer block">
+                      <div className="mb-6 inline-block">
+                        <div className="w-24 h-24 bg-gradient-to-br from-teal-100 to-green-100 rounded-3xl shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
+                          <FileCode className="w-12 h-12 text-teal-600" />
+                        </div>
+                      </div>
+                      <h3 className="text-2xl font-semibold text-gray-900 mb-3">Déposez votre fichier source ici</h3>
+                      <p className="text-base text-gray-600 mb-4">
+                        Fichiers Python, JavaScript, TypeScript, Java, C/C++, Go, Rust, PHP, Ruby...
+                      </p>
+                      <span className="px-8 py-3 text-base bg-gradient-to-r from-teal-600 to-green-600 text-white rounded-xl inline-block hover:shadow-xl transition-all font-medium hover:scale-105">
+                        Sélectionner un fichier source
+                      </span>
+                      <div className="flex flex-wrap justify-center gap-2 mt-4">
+                        {['.py','js','.ts','.java','.c','.cpp','.go','.rs'].map(ext => (
+                          <span key={ext} className="px-2 py-1 bg-teal-50 text-teal-700 rounded text-xs font-mono border border-teal-200">
+                            {ext}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-3">Max 500 KB · Fichiers texte uniquement</p>
+                    </label>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1146,7 +1226,6 @@ axios.post(
                           className="flex-1 flex items-center justify-center gap-2 px-6 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl hover:shadow-xl transition-all font-semibold hover:scale-105">
                           <span>🔄</span> Réessayer avec du vrai code
                         </button>
-
                       </div>
                     </div>
                   </div>
@@ -1200,6 +1279,7 @@ axios.post(
                         </div>
                       </div>
                     </div>
+
                     {/* ── Code extrait du PDF ── */}
                     {inputMethod === 'upload' && codeInput && (
                       <div className="p-4 sm:p-6 bg-gray-900 border-b border-gray-700">
@@ -1217,6 +1297,7 @@ axios.post(
                         </pre>
                       </div>
                     )}
+
                     {/* Bannière image */}
                     {imageAnalysisData && (
                       <div className="p-6 sm:p-8 bg-gradient-to-r from-blue-50 to-cyan-50 border-b-2 border-blue-200">
@@ -1233,7 +1314,6 @@ axios.post(
                             {analysisResult.summary && (
                               <p className="text-sm text-blue-700 mb-3">📝 {analysisResult.summary}</p>
                             )}
-                      
                             <details className="mt-3">
                               <summary className="text-xs text-blue-600 font-semibold cursor-pointer hover:text-blue-700">📋 Voir le code brut extrait par OCR</summary>
                               <pre className="mt-2 p-3 bg-gray-900 text-gray-100 rounded-lg text-xs overflow-x-auto max-h-40 border border-gray-700">{imageAnalysisData.extractedCode}</pre>
@@ -1354,112 +1434,104 @@ axios.post(
                       )}
 
                       {/* Tab Documentation */}
-                     {activeTab === 'docs' && (
-  <div className="animate-fade-in space-y-6">
+                      {activeTab === 'docs' && (
+                        <div className="animate-fade-in space-y-6">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 h-px bg-gray-200" />
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2">
+                              Explication IA des fonctions
+                            </span>
+                            <div className="flex-1 h-px bg-gray-200" />
+                          </div>
 
-    {/* Couverture existante — tu gardes ce que tu avais */}
-  
-
-    {/* Séparateur */}
-    <div className="flex items-center gap-3">
-      <div className="flex-1 h-px bg-gray-200" />
-      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2">
-        Explication IA des fonctions
-      </span>
-      <div className="flex-1 h-px bg-gray-200" />
-    </div>
-
-    {/* Doc IA */}
-    {isLoadingDoc ? (
-      <div className="text-center py-10">
-        <div className="w-10 h-10 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
-        <p className="text-sm text-gray-600 font-medium">Génération de la documentation IA…</p>
-        <p className="text-xs text-gray-400 mt-1">L'IA analyse chaque fonction de votre code</p>
-      </div>
-    ) : !docResult || docResult.length === 0 ? (
-      <div className="text-center py-8">
-        <BookOpen className="w-10 h-10 mx-auto mb-2 text-gray-300" />
-        <p className="text-sm text-gray-400">Aucune fonction détectée ou documentation indisponible</p>
-      </div>
-    ) : (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Chaque fonction expliquée en détail</p>
-          <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold border border-purple-200">
-            {docResult.length} fonction{docResult.length > 1 ? 's' : ''}
-          </span>
-        </div>
-        {docResult.map((fn, i) => (
-          <div key={i} className="border-2 border-gray-100 rounded-2xl overflow-hidden hover:border-purple-200 hover:shadow-md transition-all">
-            {/* Header fonction */}
-            <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-gray-50 border-b border-gray-100">
-              <code className="text-sm font-semibold text-purple-700 bg-purple-50 px-3 py-1 rounded-lg border border-purple-200">
-                {fn.name}
-              </code>
-              <span className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-200">
-                {fn.type || 'function'}
-              </span>
-              {fn.line && (
-                <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                  Ligne {fn.line}
-                </span>
-              )}
-            </div>
-            {/* Corps */}
-            <div className="p-5 space-y-4">
-              {fn.description && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Ce que fait cette fonction</p>
-                  <p className="text-sm text-gray-700 leading-relaxed">{fn.description}</p>
-                </div>
-              )}
-              {fn.params && fn.params.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Paramètres</p>
-                  <div className="space-y-2">
-                    {fn.params.map((p, j) => (
-                      <div key={j} className="flex items-start gap-2">
-                        <code className="text-xs bg-gray-100 px-2 py-1 rounded border border-gray-200 text-gray-700 whitespace-nowrap flex-shrink-0">
-                          {p.name}
-                        </code>
-                        {p.type && (
-                          <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-200 whitespace-nowrap flex-shrink-0">
-                            {p.type}
-                          </span>
-                        )}
-                        <span className="text-xs text-gray-500 leading-relaxed">{p.description}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {fn.returns && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Retourne</p>
-                  <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-sm text-green-800">
-                    {fn.returns}
-                  </div>
-                </div>
-              )}
-              {fn.example && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Exemple d'utilisation</p>
-                  <pre className="bg-gray-900 text-gray-100 rounded-xl px-4 py-3 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre-wrap">
-                    {fn.example}
-                  </pre>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    )}
-  </div>
-)}
+                          {isLoadingDoc ? (
+                            <div className="text-center py-10">
+                              <div className="w-10 h-10 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
+                              <p className="text-sm text-gray-600 font-medium">Génération de la documentation IA…</p>
+                              <p className="text-xs text-gray-400 mt-1">L'IA analyse chaque fonction de votre code</p>
+                            </div>
+                          ) : !docResult || docResult.length === 0 ? (
+                            <div className="text-center py-8">
+                              <BookOpen className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                              <p className="text-sm text-gray-400">Aucune fonction détectée ou documentation indisponible</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm text-gray-500">Chaque fonction expliquée en détail</p>
+                                <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold border border-purple-200">
+                                  {docResult.length} fonction{docResult.length > 1 ? 's' : ''}
+                                </span>
+                              </div>
+                              {docResult.map((fn, i) => (
+                                <div key={i} className="border-2 border-gray-100 rounded-2xl overflow-hidden hover:border-purple-200 hover:shadow-md transition-all">
+                                  <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-gray-50 border-b border-gray-100">
+                                    <code className="text-sm font-semibold text-purple-700 bg-purple-50 px-3 py-1 rounded-lg border border-purple-200">
+                                      {fn.name}
+                                    </code>
+                                    <span className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-200">
+                                      {fn.type || 'function'}
+                                    </span>
+                                    {fn.line && (
+                                      <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+                                        Ligne {fn.line}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="p-5 space-y-4">
+                                    {fn.description && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Ce que fait cette fonction</p>
+                                        <p className="text-sm text-gray-700 leading-relaxed">{fn.description}</p>
+                                      </div>
+                                    )}
+                                    {fn.params && fn.params.length > 0 && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Paramètres</p>
+                                        <div className="space-y-2">
+                                          {fn.params.map((p, j) => (
+                                            <div key={j} className="flex items-start gap-2">
+                                              <code className="text-xs bg-gray-100 px-2 py-1 rounded border border-gray-200 text-gray-700 whitespace-nowrap flex-shrink-0">
+                                                {p.name}
+                                              </code>
+                                              {p.type && (
+                                                <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-200 whitespace-nowrap flex-shrink-0">
+                                                  {p.type}
+                                                </span>
+                                              )}
+                                              <span className="text-xs text-gray-500 leading-relaxed">{p.description}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {fn.returns && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Retourne</p>
+                                        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-sm text-green-800">
+                                          {fn.returns}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {fn.example && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Exemple d'utilisation</p>
+                                        <pre className="bg-gray-900 text-gray-100 rounded-xl px-4 py-3 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre-wrap">
+                                          {fn.example}
+                                        </pre>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Tab Vulnérabilités */}
                       {activeTab === 'security' && (
-                        <div className="animate-fade-in" >
+                        <div className="animate-fade-in">
                           {!vulnResult && (
                             <div className="text-center py-16">
                               <div className="w-16 h-16 border-4 border-red-200 border-t-red-500 rounded-full animate-spin mx-auto mb-4" />
@@ -1605,7 +1677,6 @@ axios.post(
                         ACTIONS — Bouton "Appliquer les corrections"
                         ════════════════════════════════════════════════ */}
                     <div className="border-t-2 border-gray-200 p-6 sm:p-8 bg-gradient-to-r from-purple-50 to-pink-50">
-                      {/* Résumé des problèmes */}
                       {totalProblemsCount > 0 && (
                         <div className="flex flex-wrap items-center gap-2 mb-4 text-xs">
                           <span className="text-gray-500 font-medium">Problèmes détectés :</span>
@@ -1629,7 +1700,6 @@ axios.post(
                       )}
 
                       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                        {/* Bouton principal — Appliquer les corrections */}
                         <button
                           onClick={handleApplyCorrections}
                           disabled={isApplyingCorrections || totalProblemsCount === 0}
@@ -1648,13 +1718,10 @@ axios.post(
                           ) : totalProblemsCount === 0 ? (
                             <>✅ Code déjà propre !</>
                           ) : (
-                            <>
-                              ✨ Appliquer les corrections ({totalProblemsCount})
-                            </>
+                            <>✨ Appliquer les corrections ({totalProblemsCount})</>
                           )}
                         </button>
 
-                        {/* Bouton Nouvelle analyse */}
                         <button onClick={handleReset}
                           className="px-6 py-3 sm:py-4 text-sm sm:text-base border-2 border-gray-300 text-gray-700 rounded-xl hover:border-purple-600 hover:text-purple-600 transition-all font-semibold hover:scale-105">
                           Nouvelle analyse
@@ -1838,7 +1905,6 @@ axios.post(
             {/* Body modal */}
             <div className="flex-1 overflow-y-auto p-6">
 
-              {/* État chargement */}
               {isApplyingCorrections && (
                 <div className="text-center py-16">
                   <div className="relative w-20 h-20 mx-auto mb-6">
@@ -1857,17 +1923,13 @@ axios.post(
                 </div>
               )}
 
-              {/* Résultat */}
               {!isApplyingCorrections && correctionResult && (
                 <div className="space-y-5">
-
-                  {/* Résumé */}
                   <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4">
                     <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-1.5">Résumé des corrections</p>
                     <p className="text-sm text-purple-900 leading-relaxed">{correctionResult.summary}</p>
                   </div>
 
-                  {/* Tabs code / fixes */}
                   <div className="flex gap-1 border-b border-gray-200">
                     {[
                       { id: 'code',  label: 'Code corrigé' },
@@ -1882,7 +1944,6 @@ axios.post(
                     ))}
                   </div>
 
-                  {/* Tab : code corrigé */}
                   {correctionTab === 'code' && (
                     <div className="relative">
                       <div className="absolute top-3 right-3 z-10">
@@ -1906,7 +1967,6 @@ axios.post(
                     </div>
                   )}
 
-                  {/* Tab : détail des fixes */}
                   {correctionTab === 'fixes' && (
                     <div className="space-y-3">
                       {(correctionResult.appliedFixes || []).length === 0 ? (
@@ -1968,6 +2028,165 @@ axios.post(
           </div>
         </div>
       )}
+
+      {/* ════════════════════════════════════════════════════════
+          CHAT FLOTTANT
+          ════════════════════════════════════════════════════════ */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+
+        {/* Panel Chat */}
+        {chatOpen && (
+          <div className="w-96 h-[600px] bg-white rounded-3xl shadow-2xl border border-purple-200 flex flex-col overflow-hidden animate-scale-in">
+
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+                  <MessageCircle className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-white font-bold text-sm">Code Chat</p>
+                  <p className="text-white/70 text-xs">
+                    {chatSessionId
+                      ? `${chatFunctions.length} fonctions · ${chatClasses.length} classes`
+                      : 'Uploadez un fichier pour commencer'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setChatOpen(false)}
+                className="text-white/80 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Upload zone */}
+            {!chatSessionId && !chatIndexing && (
+              <div className="p-4 border-b border-gray-100">
+                <label className="flex items-center gap-3 p-3 bg-purple-50 border-2 border-dashed border-purple-300 rounded-xl cursor-pointer hover:border-purple-500 hover:bg-purple-100 transition-all">
+                  <input
+                    type="file"
+                    accept=".py,.zip"
+                    className="hidden"
+                    onChange={handleChatFileUpload}
+                  />
+                  <Paperclip className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-purple-700">Uploader votre code</p>
+                    <p className="text-xs text-purple-500">Fichier .py ou projet .zip</p>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {/* Indexing loading */}
+            {chatIndexing && (
+              <div className="p-4 border-b border-gray-100">
+                <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl">
+                  <div className="w-5 h-5 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin flex-shrink-0" />
+                  <p className="text-sm text-purple-700 font-medium">Indexation en cours...</p>
+                </div>
+              </div>
+            )}
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.length === 0 && !chatIndexing && (
+                <div className="text-center py-8">
+                  <MessageCircle className="w-12 h-12 mx-auto mb-3 text-gray-200" />
+                  <p className="text-sm text-gray-400">Uploadez un fichier .py ou .zip<br />et posez vos questions !</p>
+                </div>
+              )}
+
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
+                    msg.role === 'user'
+                      ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-sm'
+                      : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+                  }`}>
+                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                    {msg.chunks && msg.chunks.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-white/20 flex flex-wrap gap-1">
+                        {msg.chunks.map((c, j) => (
+                          <span key={j} className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
+                            {c.name} ({c.score})
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {msg.source && (
+                      <p className={`text-xs mt-1 ${msg.role === 'user' ? 'text-white/60' : 'text-gray-400'}`}>
+                        {msg.source === 'fine-tuned' ? '🤖 Modèle fine-tuné' : '🔄 DeepSeek API'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 rounded-2xl rounded-bl-sm px-4 py-3">
+                    <div className="flex gap-1">
+                      {[0,1,2].map(i => (
+                        <div key={i} className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                          style={{ animationDelay: `${i * 0.15}s` }} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="p-4 border-t border-gray-100">
+              {chatSessionId && (
+                <div className="mb-2">
+                  <label className="flex items-center gap-2 text-xs text-purple-600 cursor-pointer hover:text-purple-700">
+                    <input type="file" accept=".py,.zip" className="hidden" onChange={handleChatFileUpload} />
+                    <Paperclip className="w-3.5 h-3.5" />
+                    Changer de fichier
+                  </label>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleChatSend()}
+                  placeholder={chatSessionId ? "Posez votre question..." : "Uploadez d'abord un fichier"}
+                  disabled={!chatSessionId || chatLoading}
+                  className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <button
+                  onClick={handleChatSend}
+                  disabled={!chatInput.trim() || !chatSessionId || chatLoading}
+                  className="w-10 h-10 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl flex items-center justify-center hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105">
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bouton flottant */}
+        <button
+          onClick={() => setChatOpen(!chatOpen)}
+          className={`relative w-14 h-14 rounded-2xl shadow-2xl flex items-center justify-center transition-all hover:scale-110 ${
+            chatOpen
+              ? 'bg-gray-600 hover:bg-gray-700'
+              : 'bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:shadow-purple-500/50'
+          }`}>
+          {chatOpen
+            ? <X className="w-6 h-6 text-white" />
+            : <MessageCircle className="w-6 h-6 text-white" />
+          }
+          {!chatOpen && chatSessionId && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white" />
+          )}
+        </button>
+      </div>
 
       {/* ── CSS ────────────────────────────────────────────── */}
       <style>{`
