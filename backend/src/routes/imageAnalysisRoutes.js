@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const imageAnalysisController = require('../controllers/imageAnalysisController');
-const { authMiddleware } = require('../middleware/Authmiddleware'); 
+const { authMiddleware } = require('../Middleware/Authmiddleware'); 
 console.log('authMiddleware =', authMiddleware);
 router.post(
   '/analyze-image',

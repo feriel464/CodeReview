@@ -9,7 +9,7 @@ const {
   getCodeVersion
 } = require('../../controllers/dashboardController');
 
-// const authMiddleware = require('../middleware/auth'); // décommente si JWT
+// const authMiddleware = require('../Middleware/Auth'); // décommente si JWT
 
 router.get('/stats',            /* authMiddleware, */ getDashboardStats);
 router.get('/recent-analyses',  /* authMiddleware, */ getRecentAnalyses);
