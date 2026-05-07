@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const ML_API_URL = 'http://localhost:5001';
+const ML_API_URL = 'http://ml-service:8000';
 
 /**
  * Analyser le code pour détecter les vulnérabilités avec l'IA

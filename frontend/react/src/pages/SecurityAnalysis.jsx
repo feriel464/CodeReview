@@ -18,7 +18,7 @@ const SecurityAnalysis = () => {
     setResult(null);
 
     try {
-      const response = await axios.post('http://localhost:5001/analyze', {
+      const response = await axios.post('http://localhost:8000/analyze', {
         code,
         language
       });

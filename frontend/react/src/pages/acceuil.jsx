@@ -12,7 +12,7 @@ import axios from 'axios';
 import Navbar from '../components/Navbar';
 
 const API_URL          = import.meta.env.VITE_API_URL          || 'http://localhost:5000/api';
-const SECURITY_API_URL = import.meta.env.VITE_SECURITY_API_URL || 'http://localhost:5001';
+const SECURITY_API_URL = import.meta.env.VITE_SECURITY_API_URL || 'http://localhost:8000';
 
 const INITIAL_RESULT = {
   qualityScore:  0,
@@ -128,7 +128,7 @@ async function analyzeVulnerabilities(code, language) {
     return {
       vulnerabilities: [],
       securityScore:   null,
-      summary:         'Service de sécurité indisponible (localhost:5001)',
+      summary:         'Service de sécurité indisponible (ml-service:8000)',
       error:           e.message,
     };
   }
@@ -1663,7 +1663,7 @@ export default function CodeReview() {
                               <div className="mt-6 flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
                                 <ShieldAlert className="w-5 h-5 text-slate-500 flex-shrink-0" />
                                 <p className="text-xs text-slate-500">
-                                  Analyse propulsée par votre <strong className="text-purple-600">modèle RoBERTa fine-tuné</strong> (localhost:5001).
+                                  Analyse propulsée par votre <strong className="text-purple-600">modèle RoBERTa fine-tuné</strong> (ml-service:8000).
                                   Les résultats sont indicatifs — effectuez toujours un audit complet avant mise en production.
                                 </p>
                               </div>

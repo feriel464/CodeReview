@@ -1,6 +1,6 @@
 import requests
 
-API_URL = "http://localhost:5001/analyze"
+API_URL = "http://ml-service:8000/analyze"
 
 test_cases = [
     {

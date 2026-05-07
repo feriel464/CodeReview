@@ -5,7 +5,7 @@ const axios = require('axios');
 const { analyzeCode } = require('../utils/codeAnalyzer');
 const pool = require('../config/db');
 
-const ML_API_URL = process.env.ML_API_URL || 'http://localhost:5001';
+const ML_API_URL = process.env.ML_API_URL || 'http://ml-service:8000';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const pdf = require('pdf-parse');
 

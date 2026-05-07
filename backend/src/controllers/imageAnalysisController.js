@@ -17,8 +17,8 @@ const upload = multer({
   }
 });
 
-const OCR_SERVICE_URL  = process.env.OCR_SERVICE_URL  || 'http://localhost:5002';
-const ML_SERVICE_URL   = process.env.ML_SERVICE_URL   || 'http://localhost:5001';
+const OCR_SERVICE_URL  = process.env.OCR_SERVICE_URL  || 'http://ocr-service:8001';
+const ML_SERVICE_URL   = process.env.ML_SERVICE_URL   || 'http://ml-service:8000';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
 // ════════════════════════════════════════════════════
@@ -268,7 +268,7 @@ async function analyzeSecurityML(code, language) {
     return {
       success: false, vulnerable: false, type: 'safe',
       severity: 'none', confidence: 0,
-      message: 'Service ML indisponible (localhost:5001)',
+      message: 'Service ML indisponible (ml-service:8000)',
       vulnerable_lines: []
     };
   }
@@ -562,7 +562,7 @@ FORMAT DE SORTIE OBLIGATOIRE (JSON) :
     console.log(`🤖 DeepSeek fixCode intelligent (${language})`);
 
     const response = await axios.post(
-      process.env.ML_API_URL || 'http://localhost:5001',
+      process.env.ML_API_URL || 'http://ml-service:8000',
       {
         model: 'deepseek-coder',
         messages: [{ role: 'user', content: prompt }],

@@ -68,7 +68,6 @@ exports.indexFile = async (req, res) => {
             });
         }
 
-        // ── Essaye RunPod en priorité ──
         const runpodUp = await isRunpodAvailable();
 
         if (runpodUp) {
@@ -93,18 +92,40 @@ exports.indexFile = async (req, res) => {
             });
         }
 
-        // ── Fallback DeepSeek ──
         console.log('⚠️  RunPod indisponible — fallback DeepSeek');
 
         const session_id = `deepseek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const codeContent = req.file.buffer.toString('utf-8');
 
+        function splitIntoChunks(code) {
+            const lines = code.split('\n');
+            const chunks = [];
+            let current = [];
+
+            for (const line of lines) {
+                if (
+                    (line.startsWith('def ') || 
+                     line.startsWith('class ') || 
+                     line.startsWith('async def ')) && 
+                    current.length > 0
+                ) {
+                    chunks.push(current.join('\n'));
+                    current = [];
+                }
+                current.push(line);
+            }
+            if (current.length > 0) chunks.push(current.join('\n'));
+            return chunks.filter(c => c.trim().length > 0);
+        }
+
+        const chunks = splitIntoChunks(codeContent);
+
         fallbackSessions.set(session_id, {
             code:     codeContent,
+            chunks:   chunks,
             filename: req.file.originalname
         });
 
-        // Analyse rapide via DeepSeek pour extraire fonctions/classes
         const analysisPrompt = `Analyse ce code Python et retourne UNIQUEMENT un JSON valide avec les clés "functions" (liste de noms de fonctions) et "classes" (liste de noms de classes). Code :\n\n${codeContent.slice(0, 4000)}`;
         let functions = [];
         let classes   = [];
@@ -116,16 +137,16 @@ exports.indexFile = async (req, res) => {
             functions = parsed.functions || [];
             classes   = parsed.classes   || [];
         } catch {
-            // Si l'analyse échoue, on continue sans les métadonnées
+            // continue sans métadonnées
         }
 
         return res.json({
             success:      true,
             session_id,
-            chunks_count: 1,
+            chunks_count: chunks.length,
             functions,
             classes,
-            message:      'Fichier indexé via DeepSeek (RunPod indisponible)',
+            message:      `Fichier indexé via DeepSeek — ${chunks.length} chunks`,
             source:       'deepseek'
         });
 

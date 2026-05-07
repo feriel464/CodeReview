@@ -20,7 +20,8 @@ const app = express();
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
-      'http://localhost:5173',           // Votre frontend React
+      'http://localhost:5173',
+      'http://localhost:3000',           // Votre frontend React
       /^vscode-webview:\/\/.*/,          // Extension VS Code
     ];
  

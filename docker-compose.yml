@@ -1,0 +1,44 @@
+services:
+
+  frontend:
+    build: ./frontend/react
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+
+  ml-service:
+    build: ./ml-service
+    ports:
+      - "8000:8000"
+
+  ocr-service:
+    build: ./ocr-service
+    ports:
+      - "8001:8001"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: code_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  postgres_data:
