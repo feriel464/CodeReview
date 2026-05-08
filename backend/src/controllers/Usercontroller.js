@@ -102,8 +102,8 @@ console.log("PORT:", process.env.SMTP_PORT);
 const transporter = nodemailer.createTransport({
   service: "gmail",
   host: process.env.SMTP_HOST,       // ex: smtp.gmail.com
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false,
+  port: parseInt(process.env.SMTP_PORT) || 465,
+  secure: true,
   auth: {
     user: process.env.SMTP_USER,     // ton email expéditeur
     pass: process.env.SMTP_PASS,     // mot de passe ou app password
