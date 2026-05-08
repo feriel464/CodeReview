@@ -21,7 +21,9 @@ app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
       'http://localhost:5173',
-      'http://localhost:3000',           // Votre frontend React
+      'http://localhost:3000', 
+      'https://awake-illumination-production-b1f8.up.railway.app', 
+       process.env.FRONTEND_URL,          
       /^vscode-webview:\/\/.*/,          // Extension VS Code
     ];
  
