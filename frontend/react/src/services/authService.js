@@ -1,7 +1,7 @@
 // src/services/authService.js
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL + '/auth' : 'http://localhost:5000/api/auth';
+const API_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL + '/auth' : ' /auth';
 
 // Configuration d'axios
 const api = axios.create({
@@ -150,12 +150,12 @@ isAuthenticated() {
 
   // Lancer le flux OAuth Google
 loginWithGoogle() {
-  window.location.href = 'http://localhost:5000/api/auth/google';
+  window.location.href = ' /auth/google';
 }
 
 // Lancer le flux OAuth GitHub
 loginWithGithub() {
-  window.location.href = 'http://localhost:5000/api/auth/github';
+  window.location.href = ' /auth/github';
 }
 }
 // Ajouter dans la classe AuthService

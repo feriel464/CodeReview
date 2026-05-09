@@ -19,7 +19,7 @@ export default function UserMenu() {
       
       if (token) {
         // Appeler l'API de déconnexion
-        const response = await fetch('http://localhost:5000/api/auth/logout', {
+        const response = await fetch(' /auth/logout', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
