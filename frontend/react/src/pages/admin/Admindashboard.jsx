@@ -10,7 +10,7 @@ import CodeReviewsPage from './CodeReviews';
 import AnalyticsPage from './Analyticspage ';
 import SettingsPage from './Settings';
 
-const API_BASE = import.meta.env.VITE_API_URL || ' ';
+const API_BASE =  import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
 // Couleurs par langage
 const LANG_COLORS = {
