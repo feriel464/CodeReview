@@ -4,6 +4,8 @@ const GitHubStrategy = require('passport-github2').Strategy;
 const pool = require('./db');
 const jwt = require('jsonwebtoken');
 
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
+
 const generateToken = (userId, role) => {
   return jwt.sign(
     { userId, role },
@@ -16,7 +18,7 @@ const generateToken = (userId, role) => {
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL: '/api/auth/google/callback'
+  callbackURL: `${BACKEND_URL}/api/auth/google/callback`
 }, async (accessToken, refreshToken, profile, done) => {
   try {
     const email = profile.emails[0].value;
@@ -24,7 +26,6 @@ passport.use(new GoogleStrategy({
     const googleId = profile.id;
     const avatar = profile.photos[0]?.value;
 
-    // Vérifier si l'utilisateur existe déjà
     let result = await pool.query(
       'SELECT * FROM users WHERE google_id = $1 OR email = $2',
       [googleId, email]
@@ -33,7 +34,6 @@ passport.use(new GoogleStrategy({
     let user;
 
     if (result.rows.length > 0) {
-      // Utilisateur existe → mettre à jour google_id si nécessaire
       user = result.rows[0];
       if (!user.google_id) {
         await pool.query(
@@ -42,7 +42,6 @@ passport.use(new GoogleStrategy({
         );
       }
     } else {
-      // Nouvel utilisateur → créer
       const newUser = await pool.query(
         `INSERT INTO users (name, email, google_id, avatar, role, created_at) 
          VALUES ($1, $2, $3, $4, 'user', NOW()) 
@@ -64,7 +63,7 @@ passport.use(new GoogleStrategy({
 passport.use(new GitHubStrategy({
   clientID: process.env.GITHUB_CLIENT_ID,
   clientSecret: process.env.GITHUB_CLIENT_SECRET,
-  callbackURL: '/api/auth/github/callback',
+  callbackURL: `${BACKEND_URL}/api/auth/github/callback`,
   scope: ['user:email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
