@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // ─── Helpers ────────────────────────────────────────────────
 const TABS = [

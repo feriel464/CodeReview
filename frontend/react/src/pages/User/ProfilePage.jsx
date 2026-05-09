@@ -5,7 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../../hooks/useAuth';
 import Navbar from '../../components/Navbar';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const getInitials = (name = '') =>
   name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
