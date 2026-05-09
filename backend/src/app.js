@@ -22,7 +22,7 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:5173',
       'http://localhost:3000', 
-      'https://awake-illumination-production-b1f8.up.railway.app', 
+      'https://awake-illumination-production-b1f8.up.railway.app',  //urlfrontend
        process.env.FRONTEND_URL,          
       /^vscode-webview:\/\/.*/,          // Extension VS Code
     ];
