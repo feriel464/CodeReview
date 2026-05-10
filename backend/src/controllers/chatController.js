@@ -1,26 +1,21 @@
 // backend/controllers/chatController.js
 
 const axios = require('axios');
-const FormData = require('form-data');
 
-const CHAT_SERVICE_URL = process.env.RUNPOD_URL || 'http://localhost:5003';
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
+const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID;
+const RUNPOD_API_KEY     = process.env.RUNPOD_API_KEY;
+const DEEPSEEK_API_KEY   = process.env.DEEPSEEK_API_KEY;
+const DEEPSEEK_URL       = 'https://api.deepseek.com/v1/chat/completions';
 
 // ─────────────────────────────────────────────────────────
 //  Vérifie si RunPod est disponible
 // ─────────────────────────────────────────────────────────
 async function isRunpodAvailable() {
-    try {
-        await axios.get(`${CHAT_SERVICE_URL}/health`, { timeout: 3000 });
-        return true;
-    } catch {
-        return false;
-    }
+    return !!(RUNPOD_ENDPOINT_ID && RUNPOD_API_KEY);
 }
 
 // ─────────────────────────────────────────────────────────
-//  Fallback DeepSeek — répond à une question sur du code
+//  Fallback DeepSeek
 // ─────────────────────────────────────────────────────────
 async function askDeepSeek(question, codeContext = '') {
     const systemPrompt = codeContext
@@ -50,14 +45,12 @@ async function askDeepSeek(question, codeContext = '') {
 }
 
 // ─────────────────────────────────────────────────────────
-//  Stockage temporaire des sessions en fallback DeepSeek
-//  (en mémoire — remplace par Redis/DB si besoin)
+//  Sessions fallback DeepSeek (en mémoire)
 // ─────────────────────────────────────────────────────────
-const fallbackSessions = new Map(); // session_id -> { code, filename }
+const fallbackSessions = new Map();
 
 // ─────────────────────────────────────────────────────────
 //  POST /api/chat/index
-//  Upload + indexation du fichier .py ou .zip
 // ─────────────────────────────────────────────────────────
 exports.indexFile = async (req, res) => {
     try {
@@ -71,31 +64,44 @@ exports.indexFile = async (req, res) => {
         const runpodUp = await isRunpodAvailable();
 
         if (runpodUp) {
-            console.log('✅ RunPod disponible — indexation via RunPod');
-            const formData = new FormData();
-            formData.append('file', req.file.buffer, req.file.originalname);
+            console.log('✅ RunPod Serverless — indexation');
+            const codeContent = req.file.buffer.toString('utf-8');
 
             const response = await axios.post(
-                `${CHAT_SERVICE_URL}/index`,
-                formData,
-                { headers: formData.getHeaders(), timeout: 60000 }
+                `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`,
+                {
+                    input: {
+                        action:      'index',
+                        source_code: codeContent,
+                        filename:    req.file.originalname
+                    }
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+                        'Content-Type':  'application/json'
+                    },
+                    timeout: 120000
+                }
             );
 
+            const result = response.data.output;
             return res.json({
                 success:      true,
-                session_id:   response.data.session_id,
-                chunks_count: response.data.chunks_count,
-                functions:    response.data.functions,
-                classes:      response.data.classes,
-                message:      response.data.message,
+                session_id:   result.session_id,
+                chunks_count: result.chunks_count,
+                functions:    result.functions,
+                classes:      result.classes,
+                message:      `${result.chunks_count} chunks indexés`,
                 source:       'runpod'
             });
         }
 
+        // ── Fallback DeepSeek ──
         console.log('⚠️  RunPod indisponible — fallback DeepSeek');
 
-        const session_id = `deepseek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const codeContent = req.file.buffer.toString('utf-8');
+        const session_id  = `deepseek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const fallbackCode = req.file.buffer.toString('utf-8');
 
         function splitIntoChunks(code) {
             const lines = code.split('\n');
@@ -104,9 +110,9 @@ exports.indexFile = async (req, res) => {
 
             for (const line of lines) {
                 if (
-                    (line.startsWith('def ') || 
-                     line.startsWith('class ') || 
-                     line.startsWith('async def ')) && 
+                    (line.startsWith('def ') ||
+                     line.startsWith('class ') ||
+                     line.startsWith('async def ')) &&
                     current.length > 0
                 ) {
                     chunks.push(current.join('\n'));
@@ -118,15 +124,15 @@ exports.indexFile = async (req, res) => {
             return chunks.filter(c => c.trim().length > 0);
         }
 
-        const chunks = splitIntoChunks(codeContent);
+        const chunks = splitIntoChunks(fallbackCode);
 
         fallbackSessions.set(session_id, {
-            code:     codeContent,
+            code:     fallbackCode,
             chunks:   chunks,
             filename: req.file.originalname
         });
 
-        const analysisPrompt = `Analyse ce code Python et retourne UNIQUEMENT un JSON valide avec les clés "functions" (liste de noms de fonctions) et "classes" (liste de noms de classes). Code :\n\n${codeContent.slice(0, 4000)}`;
+        const analysisPrompt = `Analyse ce code Python et retourne UNIQUEMENT un JSON valide avec les clés "functions" (liste de noms de fonctions) et "classes" (liste de noms de classes). Code :\n\n${fallbackCode.slice(0, 4000)}`;
         let functions = [];
         let classes   = [];
 
@@ -162,7 +168,6 @@ exports.indexFile = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────
 //  POST /api/chat/ask
-//  Poser une question sur le code indexé
 // ─────────────────────────────────────────────────────────
 exports.askQuestion = async (req, res) => {
     try {
@@ -175,7 +180,7 @@ exports.askQuestion = async (req, res) => {
             });
         }
 
-        // ── Si c'est une session DeepSeek (fallback) ──
+        // ── Session DeepSeek fallback ──
         if (session_id.startsWith('deepseek_')) {
             const session = fallbackSessions.get(session_id);
             if (!session) {
@@ -196,26 +201,40 @@ exports.askQuestion = async (req, res) => {
             });
         }
 
-        // ── Session RunPod : essaye RunPod, sinon DeepSeek ──
+        // ── Session RunPod ──
         const runpodUp = await isRunpodAvailable();
 
         if (runpodUp) {
-            console.log('✅ RunPod disponible — réponse via RunPod');
+            console.log('✅ RunPod Serverless — réponse');
             const response = await axios.post(
-                `${CHAT_SERVICE_URL}/chat`,
-                { session_id, question },
-                { timeout: 60000 }
+                `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`,
+                {
+                    input: {
+                        action:     'chat',
+                        session_id,
+                        question,
+                        max_tokens: 512
+                    }
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+                        'Content-Type':  'application/json'
+                    },
+                    timeout: 120000
+                }
             );
 
+            const result = response.data.output;
             return res.json({
                 success:     true,
-                answer:      response.data.answer,
-                chunks_used: response.data.chunks_used,
-                source:      response.data.source || 'runpod'
+                answer:      result.answer,
+                chunks_used: result.chunks_used,
+                source:      result.source || 'fine-tuned'
             });
         }
 
-        // RunPod coupé après indexation — répond avec DeepSeek sans contexte
+        // ── Fallback DeepSeek sans contexte ──
         console.log('⚠️  RunPod indisponible — fallback DeepSeek sans contexte');
         const answer = await askDeepSeek(question);
 
@@ -238,22 +257,13 @@ exports.askQuestion = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────
 //  DELETE /api/chat/session/:session_id
-//  Supprimer une session
 // ─────────────────────────────────────────────────────────
 exports.deleteSession = async (req, res) => {
     try {
         const { session_id } = req.params;
 
-        // Nettoie la session fallback si elle existe
         if (fallbackSessions.has(session_id)) {
             fallbackSessions.delete(session_id);
-        }
-
-        // Essaye aussi de supprimer côté RunPod
-        try {
-            await axios.delete(`${CHAT_SERVICE_URL}/session/${session_id}`, { timeout: 5000 });
-        } catch {
-            // RunPod éteint — pas grave
         }
 
         res.json({
