@@ -15,6 +15,51 @@ async function isRunpodAvailable() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  RunPod — lance un job et attend le résultat
+// ─────────────────────────────────────────────────────────
+async function runpodRequest(input) {
+    const runRes = await axios.post(
+        `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`,
+        { input },
+        {
+            headers: {
+                'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+                'Content-Type':  'application/json'
+            },
+            timeout: 30000
+        }
+    );
+
+    const jobId = runRes.data.id;
+    console.log('🔄 RunPod job lancé:', jobId);
+
+    // Polling — attend le résultat toutes les 5 secondes (max 5 min)
+    for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+
+        const statusRes = await axios.get(
+            `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${jobId}`,
+            {
+                headers: { 'Authorization': `Bearer ${RUNPOD_API_KEY}` },
+                timeout: 10000
+            }
+        );
+
+        const status = statusRes.data.status;
+        console.log(`⏳ Job ${jobId} status: ${status}`);
+
+        if (status === 'COMPLETED') {
+            return statusRes.data.output;
+        }
+        if (status === 'FAILED') {
+            throw new Error('RunPod job failed: ' + JSON.stringify(statusRes.data));
+        }
+    }
+
+    throw new Error('RunPod timeout après 5 minutes');
+}
+
+// ─────────────────────────────────────────────────────────
 //  Fallback DeepSeek
 // ─────────────────────────────────────────────────────────
 async function askDeepSeek(question, codeContext = '') {
@@ -55,8 +100,7 @@ const fallbackSessions = new Map();
 exports.indexFile = async (req, res) => {
     try {
         console.log('📁 indexFile appelé — file:', req.file?.originalname);
-        console.log('📁 RUNPOD_ENDPOINT_ID:', RUNPOD_ENDPOINT_ID);
-        console.log('📁 RUNPOD_API_KEY existe:', !!RUNPOD_API_KEY);
+
         if (!req.file) {
             return res.status(400).json({
                 success: false,
@@ -70,41 +114,29 @@ exports.indexFile = async (req, res) => {
             console.log('✅ RunPod Serverless — indexation');
             const codeContent = req.file.buffer.toString('utf-8');
 
-            const response = await axios.post(
-                `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`,
-                {
-                    input: {
-                        action:      'index',
-                        source_code: codeContent,
-                        filename:    req.file.originalname
-                    }
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${RUNPOD_API_KEY}`,
-                        'Content-Type':  'application/json'
-                    },
-                    timeout: 120000
-                }
-            );
+            const result = await runpodRequest({
+                action:      'index',
+                source_code: codeContent,
+                filename:    req.file.originalname
+            });
 
-const result = response.data.output || response.data;
-console.log('RunPod response:', JSON.stringify(response.data));
-return res.json({
-    success:      true,
-    session_id:   result.session_id,
-    chunks_count: result.chunks_count   || 0,
-    functions:    result.functions      || [],
-    classes:      result.classes        || [],
-    message:      `${result.chunks_count || 0} chunks indexés`,
-    source:       'runpod'
-});
+            console.log('RunPod result:', JSON.stringify(result));
+
+            return res.json({
+                success:      true,
+                session_id:   result.session_id,
+                chunks_count: result.chunks_count || 0,
+                functions:    result.functions    || [],
+                classes:      result.classes      || [],
+                message:      `${result.chunks_count || 0} chunks indexés`,
+                source:       'runpod'
+            });
         }
 
         // ── Fallback DeepSeek ──
         console.log('⚠️  RunPod indisponible — fallback DeepSeek');
 
-        const session_id  = `deepseek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const session_id   = `deepseek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const fallbackCode = req.file.buffer.toString('utf-8');
 
         function splitIntoChunks(code) {
@@ -210,32 +242,21 @@ exports.askQuestion = async (req, res) => {
 
         if (runpodUp) {
             console.log('✅ RunPod Serverless — réponse');
-            const response = await axios.post(
-                `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`,
-                {
-                    input: {
-                        action:     'chat',
-                        session_id,
-                        question,
-                        max_tokens: 512
-                    }
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${RUNPOD_API_KEY}`,
-                        'Content-Type':  'application/json'
-                    },
-                    timeout: 120000
-                }
-            );
 
-            const result = response.data.output || response.data;
-            console.log('RunPod response:', JSON.stringify(response.data));
+            const result = await runpodRequest({
+                action:     'chat',
+                session_id,
+                question,
+                max_tokens: 512
+            });
+
+            console.log('RunPod result:', JSON.stringify(result));
+
             return res.json({
                 success:     true,
                 answer:      result.answer,
-                chunks_used: result.chunks_used,
-                source:      result.source || 'fine-tuned'
+                chunks_used: result.chunks_used || [],
+                source:      result.source      || 'fine-tuned'
             });
         }
 
