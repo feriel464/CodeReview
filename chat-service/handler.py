@@ -5,37 +5,24 @@ import uuid
 import chromadb
 import torch
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-from peft import PeftModel
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from huggingface_hub import login
 
 HF_TOKEN   = os.getenv("HF_TOKEN", "")
-MODEL_NAME = "deepseek-ai/deepseek-coder-6.7b-instruct"
-LORA_MODEL = "REMADI/deepseek-code-review-final"
+MODEL_NAME = "REMADI/deepseek-code-review-4bit"
 
 print("🔐 Login HuggingFace...")
 login(token=HF_TOKEN)
-
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_use_double_quant=True
-)
 
 print("📥 Chargement modèle 4-bit...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 tokenizer.pad_token = tokenizer.eos_token
 
-base_model = AutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    quantization_config=bnb_config,
-    device_map="auto"
+    device_map="auto",
+    torch_dtype=torch.float16
 )
-
-print("🔗 Chargement LoRA...")
-model = PeftModel.from_pretrained(base_model, LORA_MODEL)
-model = model.merge_and_unload()
 model.eval()
 
 print("📥 Chargement embedder...")

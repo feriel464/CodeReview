@@ -1,0 +1,8 @@
+runpod
+sentence-transformers
+chromadb
+transformers==4.46.0
+accelerate==1.0.0
+torch
+huggingface_hub
+requests
