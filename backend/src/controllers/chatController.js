@@ -54,6 +54,9 @@ const fallbackSessions = new Map();
 // ─────────────────────────────────────────────────────────
 exports.indexFile = async (req, res) => {
     try {
+        console.log('📁 indexFile appelé — file:', req.file?.originalname);
+        console.log('📁 RUNPOD_ENDPOINT_ID:', RUNPOD_ENDPOINT_ID);
+        console.log('📁 RUNPOD_API_KEY existe:', !!RUNPOD_API_KEY);
         if (!req.file) {
             return res.status(400).json({
                 success: false,
