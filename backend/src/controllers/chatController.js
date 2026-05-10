@@ -85,17 +85,17 @@ exports.indexFile = async (req, res) => {
                 }
             );
 
-            const result = response.data.output || response.data;
-            console.log('RunPod response:', JSON.stringify(response.data));
-            return res.json({
-                success:      true,
-                session_id:   result.session_id,
-                chunks_count: result.chunks_count,
-                functions:    result.functions,
-                classes:      result.classes,
-                message:      `${result.chunks_count} chunks indexés`,
-                source:       'runpod'
-            });
+const result = response.data.output || response.data;
+console.log('RunPod response:', JSON.stringify(response.data));
+return res.json({
+    success:      true,
+    session_id:   result.session_id,
+    chunks_count: result.chunks_count   || 0,
+    functions:    result.functions      || [],
+    classes:      result.classes        || [],
+    message:      `${result.chunks_count || 0} chunks indexés`,
+    source:       'runpod'
+});
         }
 
         // ── Fallback DeepSeek ──
