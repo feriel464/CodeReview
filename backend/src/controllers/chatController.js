@@ -85,7 +85,8 @@ exports.indexFile = async (req, res) => {
                 }
             );
 
-            const result = response.data.output;
+            const result = response.data.output || response.data;
+            console.log('RunPod response:', JSON.stringify(response.data));
             return res.json({
                 success:      true,
                 session_id:   result.session_id,
@@ -225,7 +226,8 @@ exports.askQuestion = async (req, res) => {
                 }
             );
 
-            const result = response.data.output;
+            const result = response.data.output || response.data;
+            console.log('RunPod response:', JSON.stringify(response.data));
             return res.json({
                 success:     true,
                 answer:      result.answer,
