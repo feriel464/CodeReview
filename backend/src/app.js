@@ -24,7 +24,7 @@ app.use(cors({
       'http://localhost:3000', 
       'https://awake-illumination-production-b1f8.up.railway.app',  //urlfrontend
        process.env.FRONTEND_URL,          
-      /^vscode-webview:\/\/.*/,          // Extension VS Code
+      /^vscode-webview:\/\/.*/,          // Extension VS Code test add 
     ];
  
     // Autoriser les requêtes sans origin (curl, Postman, outils internes)
