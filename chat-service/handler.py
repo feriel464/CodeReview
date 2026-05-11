@@ -6,36 +6,28 @@ import chromadb
 import torch
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from huggingface_hub import login
-import sys
 
-# Fix SQLite pour ChromaDB
-__import__('pysqlite3')
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+# Chemin du modèle dans le Network Volume
+MODEL_PATH = "/runpod-volume/deepseek-model"
 
-HF_TOKEN   = os.getenv("HF_TOKEN", "")
-MODEL_NAME = "REMADI/deepseek-code-review-4bit"
-
-print("🔐 Login HuggingFace...")
-login(token=HF_TOKEN)
-
-print("📥 Chargement tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+print("📥 Chargement tokenizer depuis Network Volume...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 tokenizer.pad_token = tokenizer.eos_token
 
-print("📥 Chargement modèle 4-bit...")
+print("📥 Chargement modèle depuis Network Volume...")
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
+    MODEL_PATH,
     device_map="auto",
     torch_dtype=torch.float16
 )
 model.eval()
+print("✅ Modèle prêt !")
 
 print("📥 Chargement embedder...")
 embedder      = SentenceTransformer("BAAI/bge-base-en-v1.5")
 chroma_client = chromadb.Client()
 sessions      = {}
-print("✅ Modèle prêt !")
+print("✅ Pipeline prêt !")
 
 def extract_chunks(source_code, filename="code.py"):
     chunks = []
@@ -102,11 +94,11 @@ def handler(job):
         collection  = build_vector_store(chunks, session_id)
         sessions[session_id] = collection
         return {
-            "success":     True,
-            "session_id":  session_id,
+            "success":      True,
+            "session_id":   session_id,
             "chunks_count": len(chunks),
-            "functions":   [c["name"] for c in chunks if c["type"] == "function"],
-            "classes":     [c["name"] for c in chunks if c["type"] == "class"]
+            "functions":    [c["name"] for c in chunks if c["type"] == "function"],
+            "classes":      [c["name"] for c in chunks if c["type"] == "class"]
         }
 
     if action == "chat":
@@ -161,13 +153,13 @@ Tu es un expert en revue de code Python. Analyse uniquement le code fourni.
         ).strip()
 
         return {
-            "success":    True,
-            "answer":     answer,
+            "success":     True,
+            "answer":      answer,
             "chunks_used": [{"name": r["metadata"]["name"],
                              "file": r["metadata"]["file"],
                              "score": round(1 - r["distance"], 2)}
                             for r in relevant_chunks],
-            "source":     "fine-tuned"
+            "source":      "fine-tuned"
         }
 
     return {"success": False, "error": f"Action inconnue: {action}"}
