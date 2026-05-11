@@ -6,3 +6,4 @@ accelerate==1.0.0
 torch
 huggingface_hub
 requests
+pysqlite3-binary

@@ -7,6 +7,11 @@ import torch
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from huggingface_hub import login
+import sys
+
+# Fix SQLite pour ChromaDB
+__import__('pysqlite3')
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 HF_TOKEN   = os.getenv("HF_TOKEN", "")
 MODEL_NAME = "REMADI/deepseek-code-review-4bit"
