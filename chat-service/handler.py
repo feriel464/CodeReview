@@ -1,3 +1,7 @@
+import sys
+__import__('pysqlite3')
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 import runpod
 import ast
 import os
@@ -7,7 +11,6 @@ import torch
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# Chemin du modèle dans le Network Volume
 MODEL_PATH = "/runpod-volume/deepseek-model"
 
 print("📥 Chargement tokenizer depuis Network Volume...")
