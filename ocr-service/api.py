@@ -351,13 +351,6 @@ def extract_best_text(img) -> tuple[str, str, float]:
 async def root():
     return {"message": "OCR Service v3", "status": "running"}
 
-@app.get("/health")
-async def health():
-    return {
-        "status": "ok",
-        "service": "OCR Service v3",
-        "uptime": True
-    }
 
 @app.post("/extract-code")
 async def extract_code(
