@@ -80,7 +80,8 @@ const EXTENSION_TO_LANGUAGE = {
 // ─── Analyse vulnérabilités via FastAPI ───────────────────────────────────────
 async function analyzeVulnerabilities(code, language) {
   try {
-    const response = await fetch(`${SECURITY_API_URL}/analyze`, {
+    // ✅ Appel via backend Railway, plus de VITE_SECURITY_API_URL
+    const response = await fetch(`${API_URL}/security/analyze`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ code, language }),
@@ -99,8 +100,8 @@ async function analyzeVulnerabilities(code, language) {
         severity,
         title:       TYPE_LABELS[vuln.type] || vuln.type,
         description: `${TYPE_LABELS[vuln.type] || vuln.type} détectée avec ${vuln.confidence}% de confiance`,
-        fix:         FIX_MAP[vuln.type] || 'Corrigez la vulnérabilité identifiée.',
-        cwe:         CWE_MAP[vuln.type] || null,
+        fix:         FIX_MAP[vuln.type]  || 'Corrigez la vulnérabilité identifiée.',
+        cwe:         CWE_MAP[vuln.type]  || null,
         confidence:  vuln.confidence,
         lines:       vuln.vulnerable_lines || [],
       };
@@ -110,7 +111,7 @@ async function analyzeVulnerabilities(code, language) {
     if (isVulnerable && vulnerabilities.length > 0) {
       const severityPenalty = { critical: 60, high: 45, medium: 30, low: 15, info: 5 };
       const worstPenalty    = Math.max(...vulnerabilities.map(v => severityPenalty[v.severity] || 0));
-      const avgConfidence   = vulnerabilities.reduce((sum, v) => sum + v.confidence, 0) / vulnerabilities.length;
+      const avgConfidence   = vulnerabilities.reduce((s, v) => s + v.confidence, 0) / vulnerabilities.length;
       securityScore = Math.max(0, Math.round(100 - worstPenalty - (avgConfidence * 0.2)));
     }
 
@@ -119,7 +120,7 @@ async function analyzeVulnerabilities(code, language) {
       securityScore,
       summary: isVulnerable
         ? `${vulnerabilities.length} vulnérabilité(s) détectée(s)`
-        : 'Aucune vulnérabilité détectée par le modèle',
+        : 'Aucune vulnérabilité détectée',
       rawData: data,
     };
 
@@ -128,7 +129,7 @@ async function analyzeVulnerabilities(code, language) {
     return {
       vulnerabilities: [],
       securityScore:   null,
-      summary:         'Service de sécurité indisponible (ml-service:8000)',
+      summary:         'Service de sécurité indisponible',
       error:           e.message,
     };
   }
