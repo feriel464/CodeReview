@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const imageAnalysisController = require('../controllers/imageAnalysisController');
 const { authMiddleware } = require('../Middleware/Authmiddleware'); 
 console.log('authMiddleware =', authMiddleware);
