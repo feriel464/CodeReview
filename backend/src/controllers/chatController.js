@@ -16,47 +16,53 @@ async function isRunpodAvailable() {
 
 // ─────────────────────────────────────────────────────────
 //  RunPod — lance un job et attend le résultat
+//  Retourne null si erreur → fallback DeepSeek
 // ─────────────────────────────────────────────────────────
 async function runpodRequest(input) {
-    const runRes = await axios.post(
-        `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`,
-        { input },
-        {
-            headers: {
-                'Authorization': `Bearer ${RUNPOD_API_KEY}`,
-                'Content-Type':  'application/json'
-            },
-            timeout: 30000
-        }
-    );
-
-    const jobId = runRes.data.id;
-    console.log('🔄 RunPod job lancé:', jobId);
-
-    // Polling — attend le résultat toutes les 5 secondes (max 5 min)
-    for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 5000));
-
-        const statusRes = await axios.get(
-            `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${jobId}`,
+    try {
+        const runRes = await axios.post(
+            `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`,
+            { input },
             {
-                headers: { 'Authorization': `Bearer ${RUNPOD_API_KEY}` },
-                timeout: 10000
+                headers: {
+                    'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+                    'Content-Type':  'application/json'
+                },
+                timeout: 30000
             }
         );
 
-        const status = statusRes.data.status;
-        console.log(`⏳ Job ${jobId} status: ${status}`);
+        const jobId = runRes.data.id;
+        console.log('🔄 RunPod job lancé:', jobId);
 
-        if (status === 'COMPLETED') {
-            return statusRes.data.output;
+        for (let i = 0; i < 60; i++) {
+            await new Promise(r => setTimeout(r, 5000));
+
+            const statusRes = await axios.get(
+                `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${jobId}`,
+                {
+                    headers: { 'Authorization': `Bearer ${RUNPOD_API_KEY}` },
+                    timeout: 10000
+                }
+            );
+
+            const status = statusRes.data.status;
+            console.log(`⏳ Job ${jobId} status: ${status}`);
+
+            if (status === 'COMPLETED') return statusRes.data.output;
+            if (status === 'FAILED') {
+                console.log('❌ RunPod job failed — fallback DeepSeek');
+                return null;
+            }
         }
-        if (status === 'FAILED') {
-            throw new Error('RunPod job failed: ' + JSON.stringify(statusRes.data));
-        }
+
+        console.log('❌ RunPod timeout — fallback DeepSeek');
+        return null;
+
+    } catch (error) {
+        console.log('❌ RunPod erreur — fallback DeepSeek:', error.message);
+        return null;
     }
-
-    throw new Error('RunPod timeout après 5 minutes');
 }
 
 // ─────────────────────────────────────────────────────────
@@ -108,20 +114,22 @@ exports.indexFile = async (req, res) => {
             });
         }
 
-        const runpodUp = await isRunpodAvailable();
+        const codeContent = req.file.buffer.toString('utf-8');
+        const runpodUp    = await isRunpodAvailable();
+        let result        = null;
 
         if (runpodUp) {
             console.log('✅ RunPod Serverless — indexation');
-            const codeContent = req.file.buffer.toString('utf-8');
-
-            const result = await runpodRequest({
+            result = await runpodRequest({
                 action:      'index',
                 source_code: codeContent,
                 filename:    req.file.originalname
             });
+        }
 
+        // ── RunPod OK ──
+        if (result) {
             console.log('RunPod result:', JSON.stringify(result));
-
             return res.json({
                 success:      true,
                 session_id:   result.session_id,
@@ -134,16 +142,14 @@ exports.indexFile = async (req, res) => {
         }
 
         // ── Fallback DeepSeek ──
-        console.log('⚠️  RunPod indisponible — fallback DeepSeek');
+        console.log('⚠️ Fallback DeepSeek — indexation');
 
-        const session_id   = `deepseek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const fallbackCode = req.file.buffer.toString('utf-8');
+        const session_id = `deepseek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
         function splitIntoChunks(code) {
             const lines = code.split('\n');
             const chunks = [];
             let current = [];
-
             for (const line of lines) {
                 if (
                     (line.startsWith('def ') ||
@@ -160,19 +166,19 @@ exports.indexFile = async (req, res) => {
             return chunks.filter(c => c.trim().length > 0);
         }
 
-        const chunks = splitIntoChunks(fallbackCode);
+        const chunks = splitIntoChunks(codeContent);
 
         fallbackSessions.set(session_id, {
-            code:     fallbackCode,
+            code:     codeContent,
             chunks:   chunks,
             filename: req.file.originalname
         });
 
-        const analysisPrompt = `Analyse ce code Python et retourne UNIQUEMENT un JSON valide avec les clés "functions" (liste de noms de fonctions) et "classes" (liste de noms de classes). Code :\n\n${fallbackCode.slice(0, 4000)}`;
         let functions = [];
         let classes   = [];
 
         try {
+            const analysisPrompt = `Analyse ce code Python et retourne UNIQUEMENT un JSON valide avec les clés "functions" et "classes". Code :\n\n${codeContent.slice(0, 4000)}`;
             const analysis = await askDeepSeek(analysisPrompt);
             const cleaned  = analysis.replace(/```json|```/g, '').trim();
             const parsed   = JSON.parse(cleaned);
@@ -225,10 +231,8 @@ exports.askQuestion = async (req, res) => {
                     message: "Session non trouvée. Indexez d'abord un fichier."
                 });
             }
-
-            console.log('⚠️  Réponse via DeepSeek (session fallback)');
+            console.log('⚠️ Réponse via DeepSeek (session fallback)');
             const answer = await askDeepSeek(question, session.code.slice(0, 6000));
-
             return res.json({
                 success:     true,
                 answer,
@@ -239,19 +243,21 @@ exports.askQuestion = async (req, res) => {
 
         // ── Session RunPod ──
         const runpodUp = await isRunpodAvailable();
+        let result     = null;
 
         if (runpodUp) {
             console.log('✅ RunPod Serverless — réponse');
-
-            const result = await runpodRequest({
+            result = await runpodRequest({
                 action:     'chat',
                 session_id,
                 question,
                 max_tokens: 512
             });
+        }
 
+        // ── RunPod OK ──
+        if (result) {
             console.log('RunPod result:', JSON.stringify(result));
-
             return res.json({
                 success:     true,
                 answer:      result.answer,
@@ -260,15 +266,14 @@ exports.askQuestion = async (req, res) => {
             });
         }
 
-        // ── Fallback DeepSeek sans contexte ──
-        console.log('⚠️  RunPod indisponible — fallback DeepSeek sans contexte');
+        // ── Fallback DeepSeek ──
+        console.log('⚠️ Fallback DeepSeek — réponse sans contexte RunPod');
         const answer = await askDeepSeek(question);
-
         return res.json({
             success:     true,
             answer,
             chunks_used: 0,
-            source:      'deepseek_no_context'
+            source:      'deepseek'
         });
 
     } catch (error) {
@@ -287,16 +292,10 @@ exports.askQuestion = async (req, res) => {
 exports.deleteSession = async (req, res) => {
     try {
         const { session_id } = req.params;
-
         if (fallbackSessions.has(session_id)) {
             fallbackSessions.delete(session_id);
         }
-
-        res.json({
-            success: true,
-            message: 'Session supprimée'
-        });
-
+        res.json({ success: true, message: 'Session supprimée' });
     } catch (error) {
         console.error('❌ chatController.deleteSession:', error.message);
         res.status(500).json({
