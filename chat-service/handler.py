@@ -9,28 +9,40 @@ import uuid
 import chromadb
 import torch
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import PeftModel
 
-MODEL_PATH = "/runpod-volume/deepseek-model"
+BASE_MODEL_PATH = "/runpod-volume/base-model"
+LORA_PATH       = "/runpod-volume/lora-weights"
 
-print("📥 Chargement tokenizer depuis Network Volume...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+print("📥 Chargement tokenizer...")
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_PATH)
 tokenizer.pad_token = tokenizer.eos_token
 
-print("📥 Chargement modèle depuis Network Volume...")
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_PATH,
-    device_map="auto",
-    torch_dtype=torch.float16
+print("📥 Chargement modèle de base...")
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True
 )
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL_PATH,
+    quantization_config=bnb_config,
+    device_map="auto"
+)
+
+print("🔗 Chargement LoRA...")
+model = PeftModel.from_pretrained(base_model, LORA_PATH)
+model = model.merge_and_unload()
 model.eval()
-print("✅ Modèle prêt !")
 
 print("📥 Chargement embedder...")
 embedder      = SentenceTransformer("BAAI/bge-base-en-v1.5")
 chroma_client = chromadb.Client()
 sessions      = {}
-print("✅ Pipeline prêt !")
+print("✅ Modèle prêt !")
 
 def extract_chunks(source_code, filename="code.py"):
     chunks = []
