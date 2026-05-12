@@ -9,28 +9,22 @@ import uuid
 import chromadb
 import torch
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 
 BASE_MODEL_PATH = "/runpod-volume/base-model"
 LORA_PATH       = "/runpod-volume/lora-weights"
 
-print("📥 Chargement tokenizer...")
+print("📥 Chargement tokenizer depuis Network Volume...")
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_PATH)
 tokenizer.pad_token = tokenizer.eos_token
 
 print("📥 Chargement modèle de base...")
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_use_double_quant=True
-)
-
 base_model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL_PATH,
-    quantization_config=bnb_config,
-    device_map="auto"
+    device_map="auto",
+    torch_dtype=torch.float16,
+    low_cpu_mem_usage=True
 )
 
 print("🔗 Chargement LoRA...")
