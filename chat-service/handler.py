@@ -37,27 +37,29 @@ embedder      = SentenceTransformer("BAAI/bge-base-en-v1.5")
 chroma_client = chromadb.Client()
 sessions      = {}
 print("✅ Modèle prêt !")
-
-def extract_chunks(source_code, filename="code.py"):
+def extract_chunks(source_code: str, filename: str = "code.py"):
     chunks = []
     try:
         tree = ast.parse(source_code)
-        print(f"✅ AST parsed — nodes: {len(list(ast.walk(tree)))}")
-    except SyntaxError as e:
-        print(f"❌ SyntaxError: {e}")
+    except SyntaxError:
         return [{"name": filename, "code": source_code,
                  "type": "file", "file": filename,
                  "line_start": 0, "line_end": 0}]
+
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
-            print(f"✅ Trouvé: {node.name}")
-            node_type = "function" if isinstance(node, ast.FunctionDef) else "class"
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            node_type = "class" if isinstance(node, ast.ClassDef) else "function"
             lines = source_code.split("\n")[node.lineno - 1:node.end_lineno]
-            chunks.append({"name": node.name, "code": "\n".join(lines),
-                           "type": node_type, "file": filename,
-                           "line_start": node.lineno, "line_end": node.end_lineno})
+            chunks.append({
+                "name":       node.name,
+                "code":       "\n".join(lines),
+                "type":       node_type,
+                "file":       filename,
+                "line_start": node.lineno,
+                "line_end":   node.end_lineno
+            })
+
     if not chunks:
-        print("⚠️ Aucun chunk trouvé — fallback fichier entier")
         chunks.append({"name": filename, "code": source_code,
                        "type": "file", "file": filename,
                        "line_start": 0, "line_end": 0})
