@@ -622,3 +622,24 @@ FORMAT DE SORTIE OBLIGATOIRE (JSON) :
     });
   }
 };
+
+exports.checkOCRServiceHealth = async (req, res) => {
+  try {
+    const response = await axios.get(
+      `${process.env.OCR_SERVICE_URL}/health`,
+      { timeout: 5000 }
+    );
+
+    res.json({
+      success: true,
+      ocr_service: response.data
+    });
+
+  } catch (error) {
+    res.status(503).json({
+      success: false,
+      message: 'Service OCR indisponible',
+      error: error.message
+    });
+  }
+};

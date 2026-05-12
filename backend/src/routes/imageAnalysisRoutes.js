@@ -10,5 +10,5 @@ router.post(
   imageAnalysisController.analyzeFromImage
 );
 router.post('/fix-code',authMiddleware, imageAnalysisController.fixCode);
-
+router.get('/ocr/health', imageAnalysisController.checkOCRServiceHealth);
 module.exports = router;
