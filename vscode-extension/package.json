@@ -3,6 +3,29 @@
   "displayName": "Code Review Assistant",
   "description": "Analyse de code avec IA (DeepSeek + analyse syntaxique) directement dans VS Code",
   "version": "1.0.0",
+  "publisher": "feriel464",
+  "icon": "media/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/feriel464/CodeReview"
+  },
+  "homepage": "https://github.com/feriel464/CodeReview/tree/main/vscode-extension#readme",
+  "bugs": {
+    "url": "https://github.com/feriel464/CodeReview/issues"
+  },
+  "keywords": [
+    "code review",
+    "ai",
+    "linter",
+    "security",
+    "deepseek",
+    "analysis"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -47,7 +70,7 @@
         "codeReview.backendUrl": {
           "type": "string",
           "default": "http://localhost:5000",
-          "description": "URL de votre backend Express"
+          "description": "URL de votre backend Express (ex: https://mon-backend.com)"
         },
         "codeReview.authToken": {
           "type": "string",

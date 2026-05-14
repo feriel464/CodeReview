@@ -191,14 +191,9 @@
   }
 
   // ── Statut invité ─────────────────────────────────────────
-  function renderGuestStatus(data) {
-    if (!data) { return; }
-    if (data.remaining === undefined) {
-      guestLabel.textContent = 'Connecté';
-      return;
-    }
-    guestLabel.textContent = `${data.remaining}/${data.limit} analyses restantes`;
-    document.querySelector('.dot').style.background = data.remaining > 0 ? 'var(--green)' : 'var(--red)';
+function renderGuestStatus(data) {
+    guestLabel.textContent = 'Connecté';
+    document.querySelector('.dot').style.background = 'var(--green)';
   }
 
   // ── Affichage du résultat ─────────────────────────────────
