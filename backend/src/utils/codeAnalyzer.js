@@ -1,25 +1,11 @@
-/**
- * Module central d'analyse de code — codeAnalyzer.js
- *
- * Système de scoring HYBRIDE en 3 couches :
- *
- *  Couche 1 — Validation syntaxique (garde-fou objectif)
- *    → Détecte les erreurs de syntaxe graves AVANT l'IA
- *    → Si code cassé : score plafonné à 30 max, IA non consultée
- *
- *  Couche 2 — DeepSeek IA (analyse sémantique intelligente)
- *    → Analyse les problèmes de logique, style, architecture
- *    → Retourne un score IA + liste de problèmes détaillés
- *
- *  Couche 3 — Score final hybride avec pénalités dures
- *    → score_final = (score_IA × 0.6) + (score_syntaxe × 0.4)
- *    → Pénalités non négociables sur erreurs critiques
- *    → Clamp réaliste [5..97]
- *
- *  Fallback automatique si DeepSeek indisponible → analyse statique
- */
 
 const axios = require('axios');
+
+// ─────────────────────────────────────────────────────────────
+//  IMPORTS — modules ESLint et Pylint
+// ─────────────────────────────────────────────────────────────
+const { analyzeJavaScript } = require('./eslintAnalyzer');  // adapte le chemin si besoin
+const { analyzePython }     = require('./pylintAnalyzer');  // adapte le chemin si besoin
 
 // ─────────────────────────────────────────────────────────────
 //  CONFIGURATION DEEPSEEK
@@ -93,42 +79,128 @@ Sois précis, donne les numéros de ligne exacts, explique en français.
 Ne retourne QUE le JSON.`;
 
 // ─────────────────────────────────────────────────────────────
-//  COUCHE 1 — VALIDATION SYNTAXIQUE (garde-fou objectif)
+//  COUCHE 1 — VALIDATION SYNTAXIQUE
+//  → ESLint  pour JS/TS
+//  → Pylint  pour Python
+//  → Fallback statique si l'outil est indisponible
 // ─────────────────────────────────────────────────────────────
 
 /**
  * Valide la syntaxe du code AVANT d'appeler l'IA.
- * @returns {{ syntaxScore: number, criticalErrors: Array, isBroken: boolean }}
+ * Utilise ESLint (JS/TS) ou Pylint (Python) en priorité.
+ * Fallback sur la validation statique embarquée si l'outil plante.
  *
- * syntaxScore  : 0-100 (100 = pas d'erreurs syntaxiques)
- * criticalErrors : erreurs graves trouvées
- * isBroken     : true si le code est fondamentalement invalide (penalty ≥ 50)
+ * @returns {{ syntaxScore: number, criticalErrors: Array, isBroken: boolean }}
  */
-function validateSyntax(code, lang) {
-  const lines = code.split('\n');
+async function validateSyntax(code, lang) {
   const criticalErrors = [];
-  let penalty = 0;
+  let syntaxScore = 100;
+  let isBroken    = false;
 
-  if (lang === 'python') {
-    penalty += validatePythonSyntax(code, lines, criticalErrors);
-  } else if (['javascript', 'typescript'].includes(lang)) {
-    penalty += validateJSSyntax(code, lines, criticalErrors);
+  try {
+    if (lang === 'python') {
+      // ── Pylint ───────────────────────────────────────────────
+      const pylintRes = await analyzePython(code);
+
+      if (pylintRes.success) {
+        const pylintErrors = pylintRes.errors || [];
+
+        pylintErrors.forEach(e => {
+          criticalErrors.push({
+            line:       e.line,
+            message:    e.message,
+            severity:   'error',
+            suggestion: e.symbol || '',
+          });
+        });
+
+        // Convertir le score Pylint /10 → syntaxScore /100
+        syntaxScore = Math.round((pylintRes.score || 0) * 10);
+
+        // isBroken si beaucoup d'erreurs critiques ou score très bas
+        isBroken = pylintErrors.length >= 3 || syntaxScore < 30;
+
+        console.log(
+          `🐍 Pylint Couche 1: score=${syntaxScore} | erreurs=${pylintErrors.length} | isBroken=${isBroken}`
+        );
+
+      } else {
+        // Pylint indisponible → fallback statique Python
+        console.warn('⚠️  Pylint indisponible → fallback validation statique Python');
+        const lines   = code.split('\n');
+        const penalty = validatePythonSyntax(code, lines, criticalErrors);
+        syntaxScore   = Math.max(0, 100 - penalty);
+        isBroken      = penalty >= 50;
+      }
+
+    } else if (['javascript', 'typescript'].includes(lang)) {
+      // ── ESLint ───────────────────────────────────────────────
+      const eslintRes = await analyzeJavaScript(code);
+
+      if (eslintRes.success) {
+        const eslintErrors = eslintRes.errors || [];
+
+        eslintErrors.forEach(e => {
+          criticalErrors.push({
+            line:       e.line,
+            message:    e.message,
+            severity:   'error',
+            suggestion: e.ruleId || '',
+          });
+        });
+
+        // Calculer syntaxScore à partir du nombre d'erreurs ESLint
+        // 0 erreur → 100, chaque erreur coûte 10 pts, min 0
+        const penalty = Math.min(100, eslintErrors.length * 10);
+        syntaxScore   = Math.max(0, 100 - penalty);
+        isBroken      = eslintErrors.length >= 5 || syntaxScore < 30;
+
+        console.log(
+          `🟨 ESLint Couche 1: score=${syntaxScore} | erreurs=${eslintErrors.length} | isBroken=${isBroken}`
+        );
+
+      } else {
+        // ESLint indisponible → fallback statique JS
+        console.warn('⚠️  ESLint indisponible → fallback validation statique JS');
+        const lines   = code.split('\n');
+        const penalty = validateJSSyntax(code, lines, criticalErrors);
+        syntaxScore   = Math.max(0, 100 - penalty);
+        isBroken      = penalty >= 50;
+      }
+    }
+
+  } catch (err) {
+    // ESLint ou Pylint a complètement crashé → fallback statique
+    console.error('❌ validateSyntax crash:', err.message, '→ fallback statique');
+    const lines = code.split('\n');
+    let penalty = 0;
+
+    if (lang === 'python') {
+      penalty = validatePythonSyntax(code, lines, criticalErrors);
+    } else {
+      penalty = validateJSSyntax(code, lines, criticalErrors);
+    }
+
+    syntaxScore = Math.max(0, 100 - penalty);
+    isBroken    = penalty >= 50;
   }
 
-  // Code trop court ou quasi-vide
-  if (lines.filter(l => l.trim()).length < 3) {
+  // Garde-fou : code trop court ou quasi-vide
+  if (code.split('\n').filter(l => l.trim()).length < 3) {
     criticalErrors.push({ line: 1, message: 'Code trop court ou vide', severity: 'error' });
-    penalty += 60;
+    syntaxScore = 0;
+    isBroken    = true;
   }
-
-  const syntaxScore = Math.max(0, 100 - penalty);
-  const isBroken    = penalty >= 50;
 
   console.log(`🔍 Syntaxe [${lang}]: score=${syntaxScore} | isBroken=${isBroken} | erreurs=${criticalErrors.length}`);
   return { syntaxScore, criticalErrors, isBroken };
 }
 
-// ─── Validation Python ────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+//  FALLBACKS STATIQUES (utilisés si ESLint/Pylint indisponibles)
+// ─────────────────────────────────────────────────────────────
+
+// ─── Validation Python statique ──────────────────────────────
 function validatePythonSyntax(code, lines, criticalErrors) {
   let penalty = 0;
 
@@ -177,7 +249,7 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       penalty += 15;
     }
 
-    // Condition incomplète : if x > :   (opérateur sans valeur)
+    // Condition incomplète : if x > :
     if (/^(if|elif|while)\s+.*[><=!]\s*:/.test(trimmed)) {
       criticalErrors.push({
         line: i + 1,
@@ -220,6 +292,8 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       });
       penalty += 25;
     }
+
+    // Assignation invalide = =
     if (/=\s*=\s*[^=]/.test(trimmed) && !/[=!<>]=/.test(trimmed)) {
       criticalErrors.push({
         line: i + 1,
@@ -230,7 +304,7 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       penalty += 25;
     }
 
-    // def sans nom de fonction : def (foo bar)
+    // def sans nom de fonction
     if (/^def\s*\(/.test(trimmed)) {
       criticalErrors.push({
         line: i + 1,
@@ -241,7 +315,7 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       penalty += 30;
     }
 
-    // Mots-clés français (si, retourne, afficher, pour, fin, alors)
+    // Mots-clés français
     const frenchKeywords = ['si ', 'retourne ', 'afficher ', 'pour ', 'fin ', 'alors ', 'importer '];
     for (const kw of frenchKeywords) {
       if (trimmed.toLowerCase().startsWith(kw) || trimmed.toLowerCase() === kw.trim()) {
@@ -256,7 +330,7 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       }
     }
 
-    // Opérateurs consécutifs invalides (+ + +, - - -)
+    // Opérateurs consécutifs invalides
     if (/[+\-*]{3,}/.test(trimmed)) {
       criticalErrors.push({
         line: i + 1,
@@ -267,7 +341,7 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       penalty += 20;
     }
 
-    // Texte brut sans syntaxe (ligne sans =, :, (, def, class, import, #)
+    // Texte brut sans syntaxe Python
     if (
       trimmed.length > 3 &&
       !/[=:()\[\]{}#@]/.test(trimmed) &&
@@ -282,13 +356,12 @@ function validatePythonSyntax(code, lines, criticalErrors) {
       });
       penalty += 25;
     }
-  
   });
 
   return Math.min(penalty, 100);
 }
 
-// ─── Validation JavaScript / TypeScript ──────────────────────
+// ─── Validation JavaScript / TypeScript statique ──────────────
 function validateJSSyntax(code, lines, criticalErrors) {
   let penalty = 0;
 
@@ -340,15 +413,15 @@ function validateJSSyntax(code, lines, criticalErrors) {
 //  ENTRÉE PRINCIPALE
 // ─────────────────────────────────────────────────────────────
 async function analyzeCode(code, language) {
-  console.log(`🤖 Analyse hybride (Syntaxe + DeepSeek) — langage: ${language}`);
+  console.log(`🤖 Analyse hybride (ESLint/Pylint + DeepSeek) — langage: ${language}`);
 
   try {
     const lang = normalizeLanguage(language);
 
     // ══════════════════════════════════════════════════════════
-    //  COUCHE 1 : Validation syntaxique — garde-fou objectif
+    //  COUCHE 1 : Validation syntaxique — ESLint / Pylint
     // ══════════════════════════════════════════════════════════
-    const syntaxCheck = validateSyntax(code, lang);
+    const syntaxCheck = await validateSyntax(code, lang);
 
     // Code fondamentalement cassé → retour immédiat, pas d'appel IA
     if (syntaxCheck.isBroken) {
@@ -361,12 +434,9 @@ async function analyzeCode(code, language) {
         ...(staticRes.codeSmells || []),
       ];
 
-      // Score = 30% du score syntaxique (ex: syntaxScore=0 → score=0 ; syntaxScore=40 → score=12)
-      const brokenScore = 0;
-
       return {
         success:         true,
-        qualityScore:    brokenScore,
+        qualityScore:    0,
         summary:         `⚠️ Code invalide : ${syntaxCheck.criticalErrors.length} erreur(s) syntaxique(s) critique(s) détectée(s). Ce code ne peut pas s'exécuter.`,
         improvements:    staticRes.improvements || [],
         codeSmells:      allSmells,
@@ -376,7 +446,7 @@ async function analyzeCode(code, language) {
         refactorCount:   0,
         metrics,
         language:        lang,
-        analyzedBy:      'syntax-validator',
+        analyzedBy:      'eslint-pylint-validator',
         timestamp:       new Date().toISOString(),
       };
     }
@@ -424,7 +494,7 @@ async function analyzeCode(code, language) {
       qualityScore,
       metrics,
       language:   lang,
-      analyzedBy: (aiResults && aiResults.success) ? 'deepseek-ai+syntax' : 'static+syntax',
+      analyzedBy: (aiResults && aiResults.success) ? 'deepseek-ai+eslint-pylint' : 'static+eslint-pylint',
       timestamp:  new Date().toISOString(),
     };
 
@@ -456,27 +526,22 @@ async function analyzeCode(code, language) {
  *   syntaxScore < 70 → max 60
  */
 function calculateHybridScore(aiScore, syntaxScore, results) {
-  // Formule hybride pondérée
   const hybrid = Math.round((aiScore * 0.60) + (syntaxScore * 0.40));
 
-  // Compter les vraies erreurs
   const errorsInSmells = (results.codeSmells || []).filter(s => s.severity === 'error').length;
   const totalErrors    = Math.max(results.errorCount || 0, errorsInSmells);
 
   let maxAllowed = 97;
 
-  // Pénalités basées sur le nombre d'erreurs
   if      (totalErrors >= 10) maxAllowed = Math.min(maxAllowed, 15);
   else if (totalErrors >= 6)  maxAllowed = Math.min(maxAllowed, 30);
   else if (totalErrors >= 3)  maxAllowed = Math.min(maxAllowed, 50);
   else if (totalErrors >= 1)  maxAllowed = Math.min(maxAllowed, 70);
 
-  // Pénalités basées sur le score syntaxique
   if      (syntaxScore < 30) maxAllowed = Math.min(maxAllowed, 20);
   else if (syntaxScore < 50) maxAllowed = Math.min(maxAllowed, 40);
   else if (syntaxScore < 70) maxAllowed = Math.min(maxAllowed, 60);
 
-  // Plafond global selon les problèmes totaux
   const totalProblems = (results.codeSmells || []).length + (results.improvements || []).length;
   if (totalProblems === 0) maxAllowed = Math.min(maxAllowed, 97);
   else                     maxAllowed = Math.min(maxAllowed, 95);
@@ -571,11 +636,11 @@ function parseAIResponse(responseText) {
   try { parsed = JSON.parse(jsonMatch[0]); }
   catch (e) { throw new Error(`JSON invalide: ${e.message}`); }
 
-  const errors       = Array.isArray(parsed.errors)       ? parsed.errors       : [];
-  const warnings     = Array.isArray(parsed.warnings)     ? parsed.warnings     : [];
-  const improvements = Array.isArray(parsed.improvements) ? parsed.improvements : [];
-  const codeSmells   = Array.isArray(parsed.codeSmells)   ? parsed.codeSmells   : [];
-  const vulnerabilities = Array.isArray(parsed.vulnerabilities) ? parsed.vulnerabilities : []; 
+  const errors          = Array.isArray(parsed.errors)          ? parsed.errors          : [];
+  const warnings        = Array.isArray(parsed.warnings)        ? parsed.warnings        : [];
+  const improvements    = Array.isArray(parsed.improvements)    ? parsed.improvements    : [];
+  const codeSmells      = Array.isArray(parsed.codeSmells)      ? parsed.codeSmells      : [];
+  const vulnerabilities = Array.isArray(parsed.vulnerabilities) ? parsed.vulnerabilities : [];
 
   const allCodeSmells = [
     ...codeSmells,
