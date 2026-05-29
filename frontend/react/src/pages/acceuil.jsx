@@ -2073,7 +2073,7 @@ export default function CodeReview() {
                   <Paperclip className="w-5 h-5 text-purple-600 flex-shrink-0" />
                   <div>
                     <p className="text-sm font-semibold text-purple-700">Uploader votre code</p>
-                    <p className="text-xs text-purple-500">Fichier .py ou projet .zip</p>
+                    <p className="text-xs text-purple-500">Fichier .py </p>
                   </div>
                 </label>
               </div>
