@@ -2094,7 +2094,7 @@ export default function CodeReview() {
               {chatMessages.length === 0 && !chatIndexing && (
                 <div className="text-center py-8">
                   <MessageCircle className="w-12 h-12 mx-auto mb-3 text-gray-200" />
-                  <p className="text-sm text-gray-400">Uploadez un fichier .py ou .zip<br />et posez vos questions !</p>
+                  <p className="text-sm text-gray-400">Uploadez un fichier .py <br />et posez vos questions !</p>
                 </div>
               )}
 
