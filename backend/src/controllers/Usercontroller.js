@@ -100,13 +100,13 @@ console.log("HOST:", process.env.SMTP_HOST);
 console.log("PORT:", process.env.SMTP_PORT);
 // Transporteur email (exemple avec Gmail — adapter selon ton provider)
 const transporter = nodemailer.createTransport({
-  service: "gmail",
-  host: process.env.SMTP_HOST,       // ex: smtp.gmail.com
-  port: parseInt(process.env.SMTP_PORT) || 465,
+  host: 'smtp.gmail.com',  // ← utilise host directement, pas service
+  port: 465,
   secure: true,
+  family: 4,               // ← FORCE IPv4 🔑
   auth: {
-    user: process.env.SMTP_USER,     // ton email expéditeur
-    pass: process.env.SMTP_PASS,     // mot de passe ou app password
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
   },
 });
 
