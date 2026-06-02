@@ -1,7 +1,8 @@
 // controllers/userController.js
 const pool = require('../config/db'); // Adapte le chemin vers ta connexion PostgreSQL
 const PDFDocument = require('pdfkit');  
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
 const bcrypt = require('bcrypt');
 
 // ─── Helpers PDF ─────────────────────────────────────────────
@@ -99,16 +100,7 @@ const generatePassword = (length = 12) => {
 console.log("HOST:", process.env.SMTP_HOST);
 console.log("PORT:", process.env.SMTP_PORT);
 // Transporteur email (exemple avec Gmail — adapter selon ton provider)
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',  // ← utilise host directement, pas service
-  port: 587,
-  secure: false,
-  family: 4,               // ← FORCE IPv4 🔑
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+
 
 // POST /api/users — Créer un utilisateur
 const createUser = async (req, res) => {
@@ -132,31 +124,28 @@ const createUser = async (req, res) => {
     );
 console.log("📧 Envoi email à :", email);
     // Envoyer l'email de bienvenue avec le mot de passe
-      await transporter.sendMail({
-    from: `"Plateforme Admin" <${process.env.SMTP_USER}>`,
-    to: email,
-    subject: '🎉 Bienvenue — Vos identifiants de connexion',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 520px; margin: auto; background: #f9fafb; padding: 32px; border-radius: 12px;">
-        <div style="background: linear-gradient(135deg, #7C3AED, #EC4899); border-radius: 8px; padding: 24px; text-align: center; margin-bottom: 28px;">
-          <h1 style="color: white; margin: 0; font-size: 22px;">Bienvenue, ${name} 👋</h1>
+    await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: email,
+      subject: '🎉 Bienvenue — Vos identifiants de connexion',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: auto; background: #f9fafb; padding: 32px; border-radius: 12px;">
+          <div style="background: linear-gradient(135deg, #7C3AED, #EC4899); border-radius: 8px; padding: 24px; text-align: center; margin-bottom: 28px;">
+            <h1 style="color: white; margin: 0; font-size: 22px;">Bienvenue, ${name} 👋</h1>
+          </div>
+          <p style="color: #374151;">Votre compte a été créé sur CodeReview. Voici vos identifiants :</p>
+          <div style="background: white; border: 2px solid #E5E7EB; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <p style="margin: 6px 0; color: #6B7280; font-size: 13px;">📧 <strong>Email :</strong> ${email}</p>
+            <p style="margin: 6px 0; color: #6B7280; font-size: 13px;">🔑 <strong>Mot de passe :</strong>
+              <span style="font-family: monospace; background: #F3E8FF; color: #7C3AED; padding: 2px 8px; border-radius: 4px; font-size: 15px; font-weight: bold;">${plainPassword}</span>
+            </p>
+          </div>
+          <p style="color: #DC2626; font-size: 12px;">⚠️ Changez votre mot de passe dès votre première connexion.</p>
+          <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;">
+          <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Plateforme Admin — Document confidentiel</p>
         </div>
-        <p style="color: #374151;">Votre compte a été créé sur CodeReview. Voici vos identifiants :</p>
-        <div style="background: white; border: 2px solid #E5E7EB; border-radius: 8px; padding: 20px; margin: 20px 0;">
-          <p style="margin: 6px 0; color: #6B7280; font-size: 13px;">📧 <strong>Email :</strong> ${email}</p>
-          <p style="margin: 6px 0; color: #6B7280; font-size: 13px;">🔑 <strong>Mot de passe :</strong>
-            <span style="font-family: monospace; background: #F3E8FF; color: #7C3AED; padding: 2px 8px; border-radius: 4px; font-size: 15px; font-weight: bold;">${plainPassword}</span>
-          </p>
-        </div>
-        <p style="color: #DC2626; font-size: 12px;">⚠️ Changez votre mot de passe dès votre première connexion.</p>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;">
-        <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Plateforme Admin — Document confidentiel</p>
-      </div>
-    `,
-  }).catch(err => {
-    console.error("❌ Erreur sendMail:", err.message, err.code);
-  });
-
+      `,
+    });
     res.status(201).json({ success: true, user: result.rows[0] });
     console.log("✅ Email envoyé !");
   } catch (error) {
