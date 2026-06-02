@@ -30,6 +30,7 @@
     "pdf2json": "^4.0.2",
     "pdfkit": "^0.18.0",
     "pg": "^8.17.2",
+    "resend": "^6.12.4",
     "streamifier": "^0.1.1"
   },
   "devDependencies": {
