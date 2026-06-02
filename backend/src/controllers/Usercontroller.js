@@ -102,7 +102,7 @@ console.log("PORT:", process.env.SMTP_PORT);
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',  // ← utilise host directement, pas service
   port: 587,
-  secure: true,
+  secure: false,
   family: 4,               // ← FORCE IPv4 🔑
   auth: {
     user: process.env.SMTP_USER,
